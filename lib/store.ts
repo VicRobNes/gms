@@ -329,6 +329,43 @@ export const db = {
     },
     default(): Pipeline {
       return ensure().pipelines[0]!;
+    },
+    create(input: { name: string; stages: PipelineStage[] }): Pipeline {
+      const pipeline: Pipeline = { id: randomUUID(), name: input.name, stages: input.stages };
+      ensure().pipelines.push(pipeline);
+      return pipeline;
+    },
+    update(id: string, input: { name?: string; stages?: PipelineStage[] }): { ok: true; pipeline: Pipeline } | { ok: false; reason: string } {
+      const s = ensure();
+      const pipeline = s.pipelines.find((p) => p.id === id);
+      if (!pipeline) return { ok: false, reason: 'Pipeline not found' };
+      if (input.stages) {
+        // Block rename/removal of stages currently in use.
+        const newNames = new Set(input.stages.map((st) => st.name));
+        const inUse = s.opportunities
+          .filter((o) => o.pipelineId === id)
+          .map((o) => o.stage);
+        const orphaned = inUse.find((stage) => !newNames.has(stage));
+        if (orphaned) {
+          return { ok: false, reason: `Stage "${orphaned}" is in use by an opportunity. Move those opportunities first.` };
+        }
+      }
+      if (input.name) pipeline.name = input.name;
+      if (input.stages) pipeline.stages = input.stages;
+      return { ok: true, pipeline };
+    },
+    delete(id: string): { ok: true } | { ok: false; reason: string } {
+      const s = ensure();
+      if (s.pipelines.length <= 1) {
+        return { ok: false, reason: 'Cannot delete the last pipeline.' };
+      }
+      const inUse = s.opportunities.some((o) => o.pipelineId === id);
+      if (inUse) {
+        return { ok: false, reason: 'Pipeline still has opportunities. Move them first.' };
+      }
+      const before = s.pipelines.length;
+      s.pipelines = s.pipelines.filter((p) => p.id !== id);
+      return s.pipelines.length < before ? { ok: true } : { ok: false, reason: 'Pipeline not found' };
     }
   },
 

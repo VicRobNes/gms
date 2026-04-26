@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { db, initStore, persistStore, stageKind } from '../../lib/store';
 import { getCurrentUser } from '../../lib/auth';
 import { StageSelect } from './StageSelect';
+import { PipelineStagePicker } from './PipelineStagePicker';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +11,7 @@ const formatCurrency = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
 interface PageProps {
-  searchParams: { mine?: string };
+  searchParams: { mine?: string; pipeline?: string };
 }
 
 async function createOpportunity(formData: FormData) {
@@ -65,31 +66,62 @@ export default async function OpportunitiesPage({ searchParams }: PageProps) {
   await initStore();
   const me = getCurrentUser();
   const mine = searchParams.mine === '1';
+  const pipelineFilter = searchParams.pipeline;
 
-  const allOpps = db.opportunities.list();
-  const opportunities = mine ? allOpps.filter((o) => o.ownerId === me.id) : allOpps;
-  const parties = db.parties.list();
-  const partyById = new Map(parties.map((p) => [p.id, p]));
   const pipelines = db.pipelines.list();
   const pipelineById = new Map(pipelines.map((p) => [p.id, p]));
+  const validPipelineFilter = pipelineFilter && pipelineById.has(pipelineFilter) ? pipelineFilter : undefined;
+
+  const allOpps = db.opportunities.list();
+  let opportunities = allOpps;
+  if (mine) opportunities = opportunities.filter((o) => o.ownerId === me.id);
+  if (validPipelineFilter) opportunities = opportunities.filter((o) => o.pipelineId === validPipelineFilter);
+
+  const parties = db.parties.list();
+  const partyById = new Map(parties.map((p) => [p.id, p]));
   const users = db.users.list();
   const userById = new Map(users.map((u) => [u.id, u]));
   const defaultPipeline = db.pipelines.default();
+  const buildHref = (next: { mine?: boolean; pipeline?: string | null }) => {
+    const params = new URLSearchParams();
+    if (next.mine ?? mine) params.set('mine', '1');
+    const nextPipeline = next.pipeline === null ? undefined : next.pipeline ?? validPipelineFilter;
+    if (nextPipeline) params.set('pipeline', nextPipeline);
+    const qs = params.toString();
+    return qs ? `/opportunities?${qs}` : '/opportunities';
+  };
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h1>Opportunities {mine ? <span style={{ color: 'var(--primary)' }}>· Mine</span> : null}</h1>
+          <h1>
+            Opportunities
+            {mine ? <span style={{ color: 'var(--primary)' }}> · Mine</span> : null}
+            {validPipelineFilter ? <span style={{ color: 'var(--text-muted)' }}> · {pipelineById.get(validPipelineFilter)?.name}</span> : null}
+          </h1>
           <p className="subtitle">{opportunities.length} {mine ? 'owned by you' : 'in pipeline'}</p>
         </div>
         <Link
-          href={mine ? '/opportunities' : '/opportunities?mine=1'}
+          href={buildHref({ mine: !mine })}
           className={`btn ${mine ? 'btn-primary' : ''}`}
         >
           {mine ? 'Mine ✓' : 'Mine'}
         </Link>
       </div>
+
+      {pipelines.length > 1 && (
+        <div className="row" style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+          <Link href={buildHref({ pipeline: null })} className={`btn ${!validPipelineFilter ? 'btn-primary' : ''}`}>
+            All pipelines
+          </Link>
+          {pipelines.map((p) => (
+            <Link key={p.id} href={buildHref({ pipeline: p.id })} className={`btn ${validPipelineFilter === p.id ? 'btn-primary' : ''}`}>
+              {p.name}
+            </Link>
+          ))}
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 22 }}>
         <div className="section-title">New opportunity</div>
@@ -121,22 +153,10 @@ export default async function OpportunitiesPage({ searchParams }: PageProps) {
                   ))}
                 </select>
               </div>
-              <div className="field">
-                <label htmlFor="o-pipeline">Pipeline</label>
-                <select id="o-pipeline" name="pipelineId" defaultValue={defaultPipeline.id}>
-                  {pipelines.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="o-stage">Stage</label>
-                <select id="o-stage" name="stage" defaultValue={defaultPipeline.stages[0]?.name}>
-                  {defaultPipeline.stages.map((s) => (
-                    <option key={s.name} value={s.name}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
+              <PipelineStagePicker
+                pipelines={pipelines}
+                defaultPipelineId={validPipelineFilter ?? defaultPipeline.id}
+              />
               <div className="field">
                 <label htmlFor="o-amount">Amount (USD)</label>
                 <input id="o-amount" className="input" type="number" name="amount" min={0} step={100} defaultValue={5000} />
