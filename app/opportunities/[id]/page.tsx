@@ -99,6 +99,24 @@ async function updateStage(formData: FormData) {
   if (opp) revalidatePath(`/parties/${opp.partyId}`);
 }
 
+async function updateDetails(formData: FormData) {
+  'use server';
+  await initStore();
+  const id = String(formData.get('id') ?? '');
+  if (!id) return;
+  const title = String(formData.get('title') ?? '').trim();
+  const amount = Number(formData.get('amount') ?? 0);
+  const closeDate = String(formData.get('closeDate') ?? '').trim();
+  const partyId = String(formData.get('partyId') ?? '').trim();
+  if (!title || Number.isNaN(amount) || !closeDate || !partyId) return;
+  const opp = db.opportunities.update(id, { title, amount, closeDate, partyId });
+  await persistStore();
+  revalidatePath(`/opportunities/${id}`);
+  revalidatePath('/opportunities');
+  revalidatePath('/');
+  if (opp) revalidatePath(`/parties/${opp.partyId}`);
+}
+
 async function updateOwner(formData: FormData) {
   'use server';
   await initStore();
@@ -121,6 +139,7 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
 
   const me = getCurrentUser();
   const party = db.parties.get(opp.partyId);
+  const allParties = db.parties.list();
   const pipeline = db.pipelines.get(opp.pipelineId);
   const kind = pipeline ? stageKind(pipeline, opp.stage) : 'open';
   const activities = db.activities.list({ opportunityId: opp.id });
@@ -211,11 +230,59 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
         </div>
 
         <aside>
+          {party && (party.email || party.phone) && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="section-title">Reach out</div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                {party.email && (
+                  <a className="btn btn-primary" href={`mailto:${party.email}`} style={{ flex: 1 }}>
+                    ✉️ Email
+                  </a>
+                )}
+                {party.phone && (
+                  <a className="btn" href={`tel:${party.phone}`} style={{ flex: 1 }}>
+                    📞 Call
+                  </a>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                {party.email && <div>{party.email}</div>}
+                {party.phone && <div>{party.phone}</div>}
+              </div>
+            </div>
+          )}
+
           <div className="card" style={{ marginBottom: 16 }}>
-            <div className="section-title">Details</div>
+            <div className="section-title">Edit details</div>
+            <form action={updateDetails}>
+              <input type="hidden" name="id" value={opp.id} />
+              <div className="field" style={{ marginBottom: 8 }}>
+                <label htmlFor="ed-title">Title</label>
+                <input id="ed-title" className="input" name="title" defaultValue={opp.title} required />
+              </div>
+              <div className="field" style={{ marginBottom: 8 }}>
+                <label htmlFor="ed-amount">Amount (USD)</label>
+                <input id="ed-amount" className="input" type="number" min={0} step={100} name="amount" defaultValue={opp.amount} />
+              </div>
+              <div className="field" style={{ marginBottom: 8 }}>
+                <label htmlFor="ed-close">Close date</label>
+                <input id="ed-close" className="input" type="date" name="closeDate" defaultValue={opp.closeDate} required />
+              </div>
+              <div className="field" style={{ marginBottom: 12 }}>
+                <label htmlFor="ed-party">Party</label>
+                <select id="ed-party" name="partyId" defaultValue={opp.partyId}>
+                  {allParties.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Save</button>
+            </form>
+          </div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="section-title">Snapshot</div>
             <dl className="detail-meta">
-              <dt>Party</dt>
-              <dd>{party ? <Link href={`/parties/${party.id}`} className="link">{party.name}</Link> : '—'}</dd>
               <dt>Owner</dt><dd>{owner?.name ?? '—'}</dd>
               <dt>Pipeline</dt><dd>{pipeline?.name ?? '—'}</dd>
               <dt>Stage</dt>

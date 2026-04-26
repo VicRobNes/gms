@@ -66,6 +66,24 @@ async function toggleTask(formData: FormData) {
   if (t?.opportunityId) revalidatePath(`/opportunities/${t.opportunityId}`);
 }
 
+async function updateParty(formData: FormData) {
+  'use server';
+  await initStore();
+  const id = String(formData.get('id') ?? '');
+  if (!id) return;
+  const name = String(formData.get('name') ?? '').trim();
+  const email = String(formData.get('email') ?? '').trim() || undefined;
+  const phone = String(formData.get('phone') ?? '').trim() || undefined;
+  const organizationIdRaw = String(formData.get('organizationId') ?? '').trim();
+  const organizationId = organizationIdRaw || undefined;
+  if (!name) return;
+  db.parties.update(id, { name, email, phone, organizationId });
+  await persistStore();
+  revalidatePath(`/parties/${id}`);
+  revalidatePath('/parties');
+  revalidatePath('/');
+}
+
 async function deleteTask(formData: FormData) {
   'use server';
   await initStore();
@@ -195,18 +213,63 @@ export default async function PartyDetailPage({ params }: PageProps) {
         </div>
 
         <aside>
+          {(party.email || party.phone) && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="section-title">Reach out</div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                {party.email && (
+                  <a className="btn btn-primary" href={`mailto:${party.email}`} style={{ flex: 1 }}>
+                    ✉️ Email
+                  </a>
+                )}
+                {party.phone && (
+                  <a className="btn" href={`tel:${party.phone}`} style={{ flex: 1 }}>
+                    📞 Call
+                  </a>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                {party.email && <div>{party.email}</div>}
+                {party.phone && <div>{party.phone}</div>}
+              </div>
+            </div>
+          )}
+
           <div className="card" style={{ marginBottom: 16 }}>
-            <div className="section-title">Details</div>
+            <div className="section-title">Edit details</div>
+            <form action={updateParty}>
+              <input type="hidden" name="id" value={party.id} />
+              <div className="field" style={{ marginBottom: 8 }}>
+                <label htmlFor="ed-name">Name</label>
+                <input id="ed-name" className="input" name="name" defaultValue={party.name} required />
+              </div>
+              <div className="field" style={{ marginBottom: 8 }}>
+                <label htmlFor="ed-email">Email</label>
+                <input id="ed-email" className="input" type="email" name="email" defaultValue={party.email ?? ''} />
+              </div>
+              <div className="field" style={{ marginBottom: 8 }}>
+                <label htmlFor="ed-phone">Phone</label>
+                <input id="ed-phone" className="input" name="phone" defaultValue={party.phone ?? ''} />
+              </div>
+              {party.kind === 'person' && (
+                <div className="field" style={{ marginBottom: 12 }}>
+                  <label htmlFor="ed-org">Works at</label>
+                  <select id="ed-org" name="organizationId" defaultValue={party.organizationId ?? ''}>
+                    <option value="">— none —</option>
+                    {allParties.filter((p) => p.kind === 'organization').map((o) => (
+                      <option key={o.id} value={o.id}>{o.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Save</button>
+            </form>
+          </div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="section-title">Snapshot</div>
             <dl className="detail-meta">
               <dt>Kind</dt><dd>{party.kind}</dd>
-              <dt>Email</dt><dd>{party.email ?? '—'}</dd>
-              <dt>Phone</dt><dd>{party.phone ?? '—'}</dd>
-              {party.kind === 'person' && (
-                <>
-                  <dt>Works at</dt>
-                  <dd>{org ? <Link href={`/parties/${org.id}`} className="link">{org.name}</Link> : '—'}</dd>
-                </>
-              )}
               {party.kind === 'organization' && (
                 <>
                   <dt>People</dt>

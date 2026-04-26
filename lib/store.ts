@@ -302,6 +302,12 @@ export const db = {
       ensure().parties.push(party);
       return party;
     },
+    update(id: string, patch: Partial<Omit<Party, 'id' | 'createdAt'>>): Party | undefined {
+      const party = ensure().parties.find((p) => p.id === id);
+      if (!party) return undefined;
+      Object.assign(party, patch);
+      return party;
+    },
     delete(id: string): boolean {
       const s = ensure();
       const before = s.parties.length;
@@ -379,6 +385,15 @@ export const db = {
     create(input: Omit<Opportunity, 'id' | 'createdAt'>): Opportunity {
       const opp: Opportunity = { id: randomUUID(), createdAt: now(), ...input };
       ensure().opportunities.push(opp);
+      return opp;
+    },
+    update(id: string, patch: Partial<Pick<Opportunity, 'title' | 'amount' | 'closeDate' | 'partyId'>>): Opportunity | undefined {
+      const opp = ensure().opportunities.find((o) => o.id === id);
+      if (!opp) return undefined;
+      if (patch.title !== undefined) opp.title = patch.title;
+      if (patch.amount !== undefined) opp.amount = patch.amount;
+      if (patch.closeDate !== undefined) opp.closeDate = patch.closeDate;
+      if (patch.partyId !== undefined) opp.partyId = patch.partyId;
       return opp;
     },
     setStage(id: string, stage: string, actorId?: string): Opportunity | undefined {
