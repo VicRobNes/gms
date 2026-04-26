@@ -18,7 +18,8 @@ const NAV = [
   { href: '/parties', label: 'Parties' },
   { href: '/opportunities', label: 'Opportunities' },
   { href: '/tasks', label: 'Tasks' },
-  { href: '/pipelines', label: 'Pipelines' }
+  { href: '/pipelines', label: 'Pipelines' },
+  { href: '/reports', label: 'Reports' }
 ];
 
 async function switchUser(formData: FormData) {
