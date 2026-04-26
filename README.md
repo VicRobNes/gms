@@ -25,7 +25,7 @@ A Vercel-targeted CRM for tourism marketing agencies. Two deployable apps in one
 - Team page with role badges and member invite.
 - Plain CSS design system (no build-time CSS dependencies) so the whole app runs with `next build` out of the box.
 
-## Quick start
+## Quick start (local)
 
 ```bash
 # 1. Backend (port 3000)
@@ -45,6 +45,60 @@ Sign in with any seeded email:
 - `admin@summittrails.example`
 - `agent@summittrails.example`
 - `analyst@summittrails.example`
+
+## Deploy to Vercel
+
+Deploy as **two Vercel projects** from this repo (one for the API, one for the
+Next.js dashboard).
+
+### 1. Backend project
+
+| Setting              | Value                                             |
+| -------------------- | ------------------------------------------------- |
+| Framework preset     | Other                                             |
+| Root Directory       | `./` (repo root, leave blank)                     |
+| Build command        | _empty_ (Vercel uses `api/[...route].ts` directly) |
+| Install command      | `npm install`                                     |
+| Output directory     | _empty_                                           |
+
+Then on the Vercel dashboard:
+
+1. **Storage → Create → KV** and link it to this project. Vercel injects
+   `KV_REST_API_URL`, `KV_REST_API_TOKEN`, `KV_URL`, etc. automatically.
+   Without KV, the API still runs but every cold start re-seeds the demo data
+   (fine for a quick demo, not durable).
+2. After the frontend project is deployed, set
+   `CORS_ORIGINS=https://<your-frontend>.vercel.app` so the API only accepts
+   the dashboard origin.
+
+The API will be live at `https://<backend-project>.vercel.app/api/health`.
+
+### 2. Frontend project
+
+| Setting              | Value                                             |
+| -------------------- | ------------------------------------------------- |
+| Framework preset     | Next.js                                           |
+| Root Directory       | `frontend`                                        |
+| Build / install      | Defaults                                          |
+
+Set the env var:
+
+```
+NEXT_PUBLIC_API_BASE_URL=https://<backend-project>.vercel.app
+```
+
+Redeploy. The dashboard is now live and talking to your backend.
+
+### Persistence notes
+
+- Vercel KV stores the entire CRM as a single JSON snapshot under
+  `crm-snapshot` (or `${KV_NAMESPACE}:crm-snapshot`). Every successful
+  mutation persists the whole snapshot — perfect for low-write CRMs, easy to
+  swap for Postgres later.
+- To start fresh, delete the `crm-snapshot` key in the Vercel KV browser; the
+  next request will reseed the demo data.
+- To migrate to Postgres, replace `src/lib/store.ts` with Prisma repositories
+  (the schema in `prisma/schema.prisma` already matches the in-memory model).
 
 ## API surface
 

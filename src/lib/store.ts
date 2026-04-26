@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import type {
   AuthSession,
   Campaign,
@@ -11,9 +10,15 @@ import type {
   TripRequest,
   User
 } from '../types.js';
+import { hasPersistence, loadSnapshot, saveSnapshot, type StoreSnapshot } from './persistence.js';
 
 const now = () => new Date().toISOString();
-const id = () => crypto.randomUUID();
+const id = () => globalThis.crypto.randomUUID();
+const randomToken = () => {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+};
 const daysFromNow = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString();
 const dateOnly = (days: number) => daysFromNow(days).slice(0, 10);
 
@@ -390,7 +395,7 @@ class InMemoryStore {
   }
 
   issueSession(userId: Id, organizationId: Id): AuthSession {
-    const token = `demo_${crypto.randomBytes(16).toString('hex')}`;
+    const token = `demo_${randomToken()}`;
     const session: AuthSession = {
       token,
       userId,
@@ -406,7 +411,71 @@ class InMemoryStore {
     collection.set(entity.id, entity);
     return entity;
   }
+
+  serialize(): StoreSnapshot {
+    return {
+      organizations: [...this.organizations.values()],
+      users: [...this.users.values()],
+      contacts: [...this.contacts.values()],
+      leads: [...this.leads.values()],
+      campaigns: [...this.campaigns.values()],
+      trips: [...this.trips.values()],
+      tasks: [...this.tasks.values()],
+      leadNotes: [...this.leadNotes.values()],
+      sessions: [...this.sessions.values()]
+    };
+  }
+
+  hydrate(snapshot: StoreSnapshot) {
+    const replace = <T extends { id: Id }>(target: Map<Id, T>, items: T[]) => {
+      target.clear();
+      for (const item of items) target.set(item.id, item);
+    };
+    replace(this.organizations, snapshot.organizations);
+    replace(this.users, snapshot.users);
+    replace(this.contacts, snapshot.contacts);
+    replace(this.leads, snapshot.leads);
+    replace(this.campaigns, snapshot.campaigns);
+    replace(this.trips, snapshot.trips);
+    replace(this.tasks, snapshot.tasks);
+    replace(this.leadNotes, snapshot.leadNotes);
+    this.sessions.clear();
+    for (const s of snapshot.sessions) this.sessions.set(s.token, s);
+  }
+
+  async persist(): Promise<void> {
+    if (!hasPersistence()) return;
+    try {
+      await saveSnapshot(this.serialize());
+    } catch (err) {
+      console.error('[store] failed to persist snapshot', err);
+    }
+  }
 }
 
 export const store = new InMemoryStore();
-store.seed();
+
+let readyPromise: Promise<void> | null = null;
+export function ensureReady(): Promise<void> {
+  if (readyPromise) return readyPromise;
+  readyPromise = (async () => {
+    if (hasPersistence()) {
+      try {
+        const snapshot = await loadSnapshot();
+        if (snapshot && snapshot.organizations?.length) {
+          store.hydrate(snapshot);
+          return;
+        }
+      } catch (err) {
+        console.error('[store] failed to load snapshot, falling back to seed', err);
+      }
+    }
+    store.seed();
+    if (hasPersistence()) await store.persist();
+  })();
+  return readyPromise;
+}
+
+if (!hasPersistence()) {
+  store.seed();
+}

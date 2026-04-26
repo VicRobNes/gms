@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { DashboardSnapshot } from '../contracts.js';
 import { authMiddleware, type AuthContext } from '../lib/auth.js';
 import { paginate, parsePagination } from '../lib/http.js';
-import { store } from '../lib/store.js';
+import { ensureReady, store } from '../lib/store.js';
 import {
   createCampaignSchema,
   createContactSchema,
@@ -26,6 +26,16 @@ const now = () => new Date().toISOString();
 export const api = new Hono<AuthContext>();
 
 const notFound = (entity: string) => ({ error: `${entity} not found` });
+
+const MUTATION_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+
+api.use('*', async (c, next) => {
+  await ensureReady();
+  await next();
+  if (MUTATION_METHODS.has(c.req.method) && c.res.status < 400) {
+    await store.persist();
+  }
+});
 
 api.get('/health', (c) => c.json({ ok: true, service: 'tourism-crm-api', timestamp: now() }));
 

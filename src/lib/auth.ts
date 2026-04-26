@@ -1,6 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import { HTTPException } from 'hono/http-exception';
-import { store } from './store.js';
+import { ensureReady, store } from './store.js';
 
 export type AuthContext = {
   Variables: {
@@ -10,6 +10,8 @@ export type AuthContext = {
 };
 
 export const authMiddleware = createMiddleware<AuthContext>(async (c, next) => {
+  await ensureReady();
+
   const header = c.req.header('authorization');
   if (!header || !header.startsWith('Bearer ')) {
     throw new HTTPException(401, { message: 'Missing bearer token' });
