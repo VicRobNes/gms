@@ -48,7 +48,7 @@ For backend-only iteration (no UI), the standalone Hono server still works:
 ```bash
 npm install
 npm test                    # vitest
-npm run dev                 # vercel dev (or: npx tsx watch src/index.ts)
+npm run dev                 # vercel dev (uses api/[...route].ts at the repo root)
 ```
 
 ## Deploy to Vercel
@@ -98,7 +98,7 @@ Vercel project; in that case set:
   `crm-snapshot` (or `${KV_NAMESPACE}:crm-snapshot`). Easy to swap for Postgres later.
 - To start fresh, delete the `crm-snapshot` key in the Vercel KV browser; the
   next request will reseed the demo data.
-- To migrate to Postgres, replace `src/lib/store.ts` with Prisma repositories
+- To migrate to Postgres, replace `frontend/server/lib/store.ts` with Prisma repositories
   (the schema in `prisma/schema.prisma` already matches the in-memory model).
 
 ## API surface
@@ -160,7 +160,7 @@ All `/api/crm/*` routes require `Authorization: Bearer <token>`.
 
 The remaining hardening work, in order:
 
-1. Replace the in-memory store (`src/lib/store.ts`) with Prisma repositories using the existing schema.
+1. Replace the in-memory store (`frontend/server/lib/store.ts`) with Prisma repositories using the existing schema.
 2. Add RBAC checks per route (currently any authenticated user has full access) plus an audit log table.
 3. Replace the demo login with a real auth provider (OAuth, magic links, or password + refresh tokens).
 4. Background jobs for lead scoring and campaign sync.

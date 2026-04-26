@@ -1,4 +1,4 @@
-import app from '../../../../src/index';
+import app from '../../../server/index';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

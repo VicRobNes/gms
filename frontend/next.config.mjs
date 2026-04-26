@@ -1,13 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  experimental: {
-    typedRoutes: false,
-    externalDir: true
-  },
   webpack: (config) => {
-    // Allow `.js` import specifiers in TypeScript files (the ESM convention
-    // used by the Hono backend in /src) to resolve to their `.ts` sources.
+    // The Hono backend in `server/` uses TypeScript ESM `.js` import
+    // specifiers — webpack needs to resolve those to their `.ts` sources.
     config.resolve.extensionAlias = {
       ...(config.resolve.extensionAlias ?? {}),
       '.js': ['.js', '.ts'],
