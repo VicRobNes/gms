@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
-import { db } from '../lib/store';
+import { db, initStore } from '../lib/store';
 import { getCurrentUser, CURRENT_USER_COOKIE } from '../lib/auth';
 import { UserSwitch } from '../components/UserSwitch';
 import './globals.css';
@@ -32,7 +32,8 @@ async function switchUser(formData: FormData) {
   revalidatePath('/', 'layout');
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await initStore();
   const me = getCurrentUser();
   const users = db.users.list();
   return (

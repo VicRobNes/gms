@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
-import { db, stageKind } from '../../lib/store';
+import { db, initStore, persistStore, stageKind } from '../../lib/store';
 import { getCurrentUser } from '../../lib/auth';
 import { StageSelect } from './StageSelect';
 
@@ -15,6 +15,7 @@ interface PageProps {
 
 async function createOpportunity(formData: FormData) {
   'use server';
+  await initStore();
   const title = String(formData.get('title') ?? '').trim();
   const partyId = String(formData.get('partyId') ?? '');
   const pipelineId = String(formData.get('pipelineId') ?? '');
@@ -24,17 +25,20 @@ async function createOpportunity(formData: FormData) {
   const ownerId = String(formData.get('ownerId') ?? '') || undefined;
   if (!title || !partyId || !pipelineId || !stage || !closeDate || Number.isNaN(amount)) return;
   db.opportunities.create({ title, partyId, pipelineId, stage, amount, closeDate, ownerId });
+  await persistStore();
   revalidatePath('/opportunities');
   revalidatePath('/');
 }
 
 async function updateStage(formData: FormData) {
   'use server';
+  await initStore();
   const id = String(formData.get('id') ?? '');
   const stage = String(formData.get('stage') ?? '');
   if (!id || !stage) return;
   const me = getCurrentUser();
   const opp = db.opportunities.setStage(id, stage, me.id);
+  await persistStore();
   revalidatePath('/opportunities');
   revalidatePath('/');
   if (opp) {
@@ -45,9 +49,11 @@ async function updateStage(formData: FormData) {
 
 async function deleteOpportunity(formData: FormData) {
   'use server';
+  await initStore();
   const id = String(formData.get('id') ?? '');
   if (!id) return;
   db.opportunities.delete(id);
+  await persistStore();
   revalidatePath('/opportunities');
   revalidatePath('/');
 }
@@ -55,7 +61,8 @@ async function deleteOpportunity(formData: FormData) {
 const dateOffset = (offsetDays: number) =>
   new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
 
-export default function OpportunitiesPage({ searchParams }: PageProps) {
+export default async function OpportunitiesPage({ searchParams }: PageProps) {
+  await initStore();
   const me = getCurrentUser();
   const mine = searchParams.mine === '1';
 

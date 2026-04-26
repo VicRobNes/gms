@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { db, stageKind, today } from '../lib/store';
+import { db, initStore, stageKind, today } from '../lib/store';
 import { getCurrentUser } from '../lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  await initStore();
   const me = getCurrentUser();
   const parties = db.parties.list();
   const opportunities = db.opportunities.list();

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { Timeline } from '../../../components/Timeline';
 import { TaskList } from '../../../components/TaskList';
-import { db, type ActivityType } from '../../../lib/store';
+import { db, initStore, persistStore, type ActivityType } from '../../../lib/store';
 import { getCurrentUser } from '../../../lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +17,7 @@ interface PageProps {
 
 async function addActivity(formData: FormData) {
   'use server';
+  await initStore();
   const partyId = String(formData.get('partyId') ?? '');
   const type = (String(formData.get('type') ?? 'note') as ActivityType);
   const body = String(formData.get('body') ?? '').trim();
@@ -29,12 +30,14 @@ async function addActivity(formData: FormData) {
     body,
     at: new Date().toISOString()
   });
+  await persistStore();
   revalidatePath(`/parties/${partyId}`);
   revalidatePath('/parties');
 }
 
 async function addTask(formData: FormData) {
   'use server';
+  await initStore();
   const partyId = String(formData.get('partyId') ?? '');
   const opportunityId = String(formData.get('opportunityId') ?? '') || undefined;
   const title = String(formData.get('title') ?? '').trim();
@@ -42,6 +45,7 @@ async function addTask(formData: FormData) {
   const assigneeId = String(formData.get('assigneeId') ?? '') || undefined;
   if (!partyId || !title || !due) return;
   db.tasks.create({ title, due, partyId, opportunityId, assigneeId });
+  await persistStore();
   revalidatePath(`/parties/${partyId}`);
   revalidatePath('/tasks');
   revalidatePath('/');
@@ -50,10 +54,12 @@ async function addTask(formData: FormData) {
 
 async function toggleTask(formData: FormData) {
   'use server';
+  await initStore();
   const id = String(formData.get('id') ?? '');
   if (!id) return;
   const me = getCurrentUser();
   const t = db.tasks.toggleDone(id, me.id);
+  await persistStore();
   revalidatePath('/tasks');
   revalidatePath('/');
   if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
@@ -62,17 +68,20 @@ async function toggleTask(formData: FormData) {
 
 async function deleteTask(formData: FormData) {
   'use server';
+  await initStore();
   const id = String(formData.get('id') ?? '');
   if (!id) return;
   const t = db.tasks.get(id);
   db.tasks.delete(id);
+  await persistStore();
   revalidatePath('/tasks');
   revalidatePath('/');
   if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
   if (t?.opportunityId) revalidatePath(`/opportunities/${t.opportunityId}`);
 }
 
-export default function PartyDetailPage({ params }: PageProps) {
+export default async function PartyDetailPage({ params }: PageProps) {
+  await initStore();
   const party = db.parties.get(params.id);
   if (!party) notFound();
 

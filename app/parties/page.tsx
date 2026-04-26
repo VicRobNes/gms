@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
-import { db, type PartyKind } from '../../lib/store';
+import { db, initStore, persistStore, type PartyKind } from '../../lib/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +10,7 @@ interface PartiesPageProps {
 
 async function createParty(formData: FormData) {
   'use server';
+  await initStore();
   const name = String(formData.get('name') ?? '').trim();
   const kind = (String(formData.get('kind') ?? 'person') as PartyKind);
   const email = String(formData.get('email') ?? '').trim() || undefined;
@@ -18,21 +19,25 @@ async function createParty(formData: FormData) {
   const organizationId = kind === 'person' && organizationIdRaw ? organizationIdRaw : undefined;
   if (!name) return;
   db.parties.create({ name, kind, email, phone, organizationId });
+  await persistStore();
   revalidatePath('/parties');
   revalidatePath('/');
 }
 
 async function deleteParty(formData: FormData) {
   'use server';
+  await initStore();
   const id = String(formData.get('id') ?? '');
   if (!id) return;
   db.parties.delete(id);
+  await persistStore();
   revalidatePath('/parties');
   revalidatePath('/opportunities');
   revalidatePath('/');
 }
 
-export default function PartiesPage({ searchParams }: PartiesPageProps) {
+export default async function PartiesPage({ searchParams }: PartiesPageProps) {
+  await initStore();
   const kindFilter = searchParams.kind === 'person' || searchParams.kind === 'organization'
     ? (searchParams.kind as PartyKind)
     : undefined;

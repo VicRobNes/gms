@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { TaskList } from '../../components/TaskList';
-import { db, today } from '../../lib/store';
+import { db, initStore, persistStore, today } from '../../lib/store';
 import { getCurrentUser } from '../../lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +25,7 @@ const dateOffset = (offsetDays: number) =>
 
 async function createTask(formData: FormData) {
   'use server';
+  await initStore();
   const title = String(formData.get('title') ?? '').trim();
   const due = String(formData.get('due') ?? '').trim();
   const partyId = String(formData.get('partyId') ?? '') || undefined;
@@ -32,6 +33,7 @@ async function createTask(formData: FormData) {
   const assigneeId = String(formData.get('assigneeId') ?? '') || undefined;
   if (!title || !due) return;
   db.tasks.create({ title, due, partyId, opportunityId, assigneeId });
+  await persistStore();
   revalidatePath('/tasks');
   revalidatePath('/');
   if (partyId) revalidatePath(`/parties/${partyId}`);
@@ -40,10 +42,12 @@ async function createTask(formData: FormData) {
 
 async function toggleTask(formData: FormData) {
   'use server';
+  await initStore();
   const id = String(formData.get('id') ?? '');
   if (!id) return;
   const me = getCurrentUser();
   const t = db.tasks.toggleDone(id, me.id);
+  await persistStore();
   revalidatePath('/tasks');
   revalidatePath('/');
   if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
@@ -52,17 +56,20 @@ async function toggleTask(formData: FormData) {
 
 async function deleteTask(formData: FormData) {
   'use server';
+  await initStore();
   const id = String(formData.get('id') ?? '');
   if (!id) return;
   const t = db.tasks.get(id);
   db.tasks.delete(id);
+  await persistStore();
   revalidatePath('/tasks');
   revalidatePath('/');
   if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
   if (t?.opportunityId) revalidatePath(`/opportunities/${t.opportunityId}`);
 }
 
-export default function TasksPage({ searchParams }: PageProps) {
+export default async function TasksPage({ searchParams }: PageProps) {
+  await initStore();
   const view: View = (VIEWS.some((v) => v.id === searchParams.view) ? searchParams.view : 'open') as View;
   const mine = searchParams.mine === '1';
   const me = getCurrentUser();

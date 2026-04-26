@@ -233,10 +233,57 @@ const seed = (): DB => {
   return { parties, pipelines, opportunities, activities, tasks, users };
 };
 
+// Sync accessor used by every read/write below. Always returns the in-memory
+// DB. The first time the process touches it (cold start) `initStore()`
+// hydrates from KV (if configured) or falls back to seeding.
 const ensure = (): DB => {
   if (!globalForDB.__crmDB) globalForDB.__crmDB = seed();
   return globalForDB.__crmDB;
 };
+
+// Async hydration. Pages and Server Actions await this once before reading;
+// after the first call it's a cheap no-op. KV failures fall back to seed.
+import { hasPersistence, loadSnapshot, saveSnapshot } from './persistence';
+
+let initPromise: Promise<void> | null = null;
+
+export function initStore(): Promise<void> {
+  if (globalForDB.__crmDB) return Promise.resolve();
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    if (hasPersistence()) {
+      try {
+        const snapshot = await loadSnapshot<DB>();
+        if (snapshot && Array.isArray(snapshot.users) && snapshot.users.length > 0) {
+          globalForDB.__crmDB = snapshot;
+          return;
+        }
+      } catch (err) {
+        console.error('[store] hydrate failed; seeding instead', err);
+      }
+    }
+    globalForDB.__crmDB = seed();
+    if (hasPersistence()) {
+      try {
+        await saveSnapshot(globalForDB.__crmDB);
+      } catch (err) {
+        console.error('[store] initial persist failed', err);
+      }
+    }
+  })();
+  return initPromise;
+}
+
+// Save the entire DB to KV. Awaited at the end of every Server Action that
+// mutates state. No-op when persistence isn't configured.
+export async function persistStore(): Promise<void> {
+  if (!hasPersistence() || !globalForDB.__crmDB) return;
+  try {
+    await saveSnapshot(globalForDB.__crmDB);
+  } catch (err) {
+    console.error('[store] persist failed', err);
+  }
+}
 
 // ---------- Store API ----------------------------------------------------
 

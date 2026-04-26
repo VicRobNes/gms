@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { Timeline } from '../../../components/Timeline';
 import { TaskList } from '../../../components/TaskList';
-import { db, stageKind, type ActivityType } from '../../../lib/store';
+import { db, initStore, persistStore, stageKind, type ActivityType } from '../../../lib/store';
 import { getCurrentUser } from '../../../lib/auth';
 import { StageSelect } from '../StageSelect';
 import { OwnerSelect } from '../OwnerSelect';
@@ -19,6 +19,7 @@ interface PageProps {
 
 async function addActivity(formData: FormData) {
   'use server';
+  await initStore();
   const opportunityId = String(formData.get('opportunityId') ?? '');
   const partyId = String(formData.get('partyId') ?? '') || undefined;
   const type = (String(formData.get('type') ?? 'note') as ActivityType);
@@ -33,12 +34,14 @@ async function addActivity(formData: FormData) {
     body,
     at: new Date().toISOString()
   });
+  await persistStore();
   revalidatePath(`/opportunities/${opportunityId}`);
   if (partyId) revalidatePath(`/parties/${partyId}`);
 }
 
 async function addTask(formData: FormData) {
   'use server';
+  await initStore();
   const opportunityId = String(formData.get('opportunityId') ?? '');
   const partyId = String(formData.get('partyId') ?? '') || undefined;
   const title = String(formData.get('title') ?? '').trim();
@@ -46,6 +49,7 @@ async function addTask(formData: FormData) {
   const assigneeId = String(formData.get('assigneeId') ?? '') || undefined;
   if (!opportunityId || !title || !due) return;
   db.tasks.create({ title, due, partyId, opportunityId, assigneeId });
+  await persistStore();
   revalidatePath(`/opportunities/${opportunityId}`);
   revalidatePath('/tasks');
   revalidatePath('/');
@@ -54,10 +58,12 @@ async function addTask(formData: FormData) {
 
 async function toggleTask(formData: FormData) {
   'use server';
+  await initStore();
   const id = String(formData.get('id') ?? '');
   if (!id) return;
   const me = getCurrentUser();
   const t = db.tasks.toggleDone(id, me.id);
+  await persistStore();
   revalidatePath('/tasks');
   revalidatePath('/');
   if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
@@ -66,10 +72,12 @@ async function toggleTask(formData: FormData) {
 
 async function deleteTask(formData: FormData) {
   'use server';
+  await initStore();
   const id = String(formData.get('id') ?? '');
   if (!id) return;
   const t = db.tasks.get(id);
   db.tasks.delete(id);
+  await persistStore();
   revalidatePath('/tasks');
   revalidatePath('/');
   if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
@@ -78,11 +86,13 @@ async function deleteTask(formData: FormData) {
 
 async function updateStage(formData: FormData) {
   'use server';
+  await initStore();
   const id = String(formData.get('id') ?? '');
   const stage = String(formData.get('stage') ?? '');
   if (!id || !stage) return;
   const me = getCurrentUser();
   const opp = db.opportunities.setStage(id, stage, me.id);
+  await persistStore();
   revalidatePath(`/opportunities/${id}`);
   revalidatePath('/opportunities');
   revalidatePath('/');
@@ -91,18 +101,21 @@ async function updateStage(formData: FormData) {
 
 async function updateOwner(formData: FormData) {
   'use server';
+  await initStore();
   const id = String(formData.get('id') ?? '');
   const ownerId = String(formData.get('ownerId') ?? '') || undefined;
   if (!id) return;
   const me = getCurrentUser();
   const opp = db.opportunities.setOwner(id, ownerId, me.id);
+  await persistStore();
   revalidatePath(`/opportunities/${id}`);
   revalidatePath('/opportunities');
   revalidatePath('/');
   if (opp) revalidatePath(`/parties/${opp.partyId}`);
 }
 
-export default function OpportunityDetailPage({ params }: PageProps) {
+export default async function OpportunityDetailPage({ params }: PageProps) {
+  await initStore();
   const opp = db.opportunities.get(params.id);
   if (!opp) notFound();
 
