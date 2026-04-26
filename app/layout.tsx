@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { db, initStore } from '../lib/store';
 import { getCurrentUser, CURRENT_USER_COOKIE } from '../lib/auth';
 import { UserSwitch } from '../components/UserSwitch';
+import { CommandPalette } from '../components/CommandPalette';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -45,6 +46,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               GMS CRM
               <small>Tourism marketing</small>
             </div>
+            <CommandPalette />
             <nav>
               {NAV.map((item) => (
                 <Link key={item.href} href={item.href}>
