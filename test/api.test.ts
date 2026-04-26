@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import app from '../frontend/server/index.js';
+import app from '../server/index.js';
 
 describe('tourism crm api', () => {
   let token = '';
