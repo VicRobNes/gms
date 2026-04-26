@@ -150,10 +150,8 @@ table.data tr:hover td { background: rgba(46, 84, 255, 0.03); }
   color: var(--text);
   text-transform: capitalize;
 }
-.badge.stage-new { background: #eef0f7; color: #4a546b; }
-.badge.stage-qualified { background: #fff2dc; color: #a26f10; }
-.badge.stage-proposal { background: #e1ecff; color: #2e54ff; }
-.badge.stage-won { background: #d3f1e0; color: #1f7a4f; }
+.badge.stage-open { background: #e1ecff; color: #2e54ff; }
+.badge.stage-won  { background: #d3f1e0; color: #1f7a4f; }
 .badge.stage-lost { background: #fadcdc; color: #a33333; }
 
 .input, select, textarea {
