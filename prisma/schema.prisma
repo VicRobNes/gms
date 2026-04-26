@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id          String      @id @default(uuid())
+  name        String
+  timezone    String
+  users       User[]
+  contacts    Contact[]
+  leads       Lead[]
+  campaigns   Campaign[]
+  trips       TripRequest[]
+  tasks       Task[]
+  createdAt   DateTime    @default(now())
+}
+
+model User {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String   @unique
+  name           String
+  role           UserRole
+  createdAt      DateTime @default(now())
+}
+
+model Contact {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  firstName      String
+  lastName       String
+  email          String
+  phone          String?
+  source         ContactSource
+  tags           String[]
+  country        String
+  notes          String?
+  leads          Lead[]
+  createdAt      DateTime @default(now())
+}
+
+model Lead {
+  id                   String   @id @default(uuid())
+  organizationId       String
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contactId            String
+  contact              Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  pipeline             LeadPipeline
+  stage                LeadStage
+  budget               Int
+  travelWindow         String
+  destinationInterests String[]
+  assignedTo           String?
+  trips                TripRequest[]
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Campaign {
+  id                String   @id @default(uuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name              String
+  channel           CampaignChannel
+  status            CampaignStatus
+  audienceTag       String
+  spendCents        Int      @default(0)
+  impressions       Int      @default(0)
+  clicks            Int      @default(0)
+  leadsGenerated    Int      @default(0)
+  bookingsGenerated Int      @default(0)
+  createdAt         DateTime @default(now())
+}
+
+model TripRequest {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leadId         String
+  lead           Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  destination    String
+  travelers      Int
+  startDate      DateTime
+  endDate        DateTime
+  packageType    PackageType
+  status         TripStatus
+  totalValueCents Int      @default(0)
+  createdAt      DateTime  @default(now())
+}
+
+model Task {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  title          String
+  type           TaskType
+  dueAt          DateTime
+  status         TaskStatus
+  ownerId        String?
+  leadId         String?
+  priority       TaskPriority
+  createdAt      DateTime @default(now())
+}
+
+enum UserRole {
+  owner
+  admin
+  agent
+  analyst
+}
+
+enum ContactSource {
+  website
+  instagram
+  facebook
+  partner
+  referral
+  walk_in
+}
+
+enum LeadPipeline {
+  inbound
+  groups
+  luxury
+  adventure
+}
+
+enum LeadStage {
+  new
+  qualified
+  proposal_sent
+  negotiation
+  won
+  lost
+}
+
+enum CampaignChannel {
+  email
+  sms
+  meta_ads
+  google_ads
+  whatsapp
+}
+
+enum CampaignStatus {
+  draft
+  active
+  paused
+  completed
+}
+
+enum PackageType {
+  all_inclusive
+  custom
+  honeymoon
+  group
+}
+
+enum TripStatus {
+  draft
+  quoted
+  booked
+  cancelled
+}
+
+enum TaskType {
+  follow_up
+  proposal
+  itinerary
+  payment
+}
+
+enum TaskStatus {
+  todo
+  doing
+  done
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+}
