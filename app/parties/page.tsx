@@ -208,7 +208,7 @@ export default async function PartiesPage({ searchParams }: PartiesPageProps) {
               <tr key={p.id}>
                 <td><Link href={`/parties/${p.id}`} className="link"><strong>{p.name}</strong></Link></td>
                 <td><span className="badge">{p.kind}</span></td>
-                <td>{p.email ?? '—'}</td>
+                <td>{p.email ? <a href={`mailto:${p.email}`} className="link">{p.email}</a> : '—'}</td>
                 <td>{p.organizationId ? (
                   <Link href={`/parties/${p.organizationId}`} className="link">
                     {orgById.get(p.organizationId)?.name ?? '—'}

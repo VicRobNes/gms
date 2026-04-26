@@ -7,13 +7,15 @@ import type { SearchResult } from '../lib/search';
 const KIND_ICON: Record<SearchResult['kind'], string> = {
   party: '👤',
   opportunity: '💼',
-  task: '✅'
+  task: '✅',
+  activity: '📝'
 };
 
 const KIND_LABEL: Record<SearchResult['kind'], string> = {
   party: 'Party',
   opportunity: 'Opportunity',
-  task: 'Task'
+  task: 'Task',
+  activity: 'Activity'
 };
 
 export function CommandPalette() {

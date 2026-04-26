@@ -4,7 +4,7 @@
 
 import { db } from './store';
 
-export type SearchKind = 'party' | 'opportunity' | 'task';
+export type SearchKind = 'party' | 'opportunity' | 'task' | 'activity';
 
 export interface SearchResult {
   kind: SearchKind;
@@ -80,6 +80,30 @@ export function search(query: string, limit = 12): SearchResult[] {
           `due ${t.due}`
         ].filter(Boolean).join(' · '),
         href: link
+      });
+      if (results.length >= limit) return results;
+    }
+  }
+
+  // Activity body search — last so it doesn't drown out entity matches.
+  for (const a of db.activities.list()) {
+    if (a.type === 'log') continue;
+    if (matches(a.body, q)) {
+      const opp = a.opportunityId ? db.opportunities.get(a.opportunityId) : undefined;
+      const party = a.partyId ? partyById.get(a.partyId) : undefined;
+      const actor = a.actorId ? userById.get(a.actorId) : undefined;
+      const href = opp
+        ? `/opportunities/${opp.id}`
+        : party
+        ? `/parties/${party.id}`
+        : '/activities';
+      const snippet = a.body.length > 80 ? a.body.slice(0, 80) + '…' : a.body;
+      results.push({
+        kind: 'activity',
+        id: a.id,
+        title: snippet,
+        subtitle: [a.type, actor?.name, party?.name, opp?.title].filter(Boolean).join(' · '),
+        href
       });
       if (results.length >= limit) return results;
     }
