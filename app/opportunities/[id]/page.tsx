@@ -4,7 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { Timeline } from '../../../components/Timeline';
 import { TaskList } from '../../../components/TaskList';
 import { db, stageKind, type ActivityType } from '../../../lib/store';
+import { getCurrentUser } from '../../../lib/auth';
 import { StageSelect } from '../StageSelect';
+import { OwnerSelect } from '../OwnerSelect';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,10 +24,12 @@ async function addActivity(formData: FormData) {
   const type = (String(formData.get('type') ?? 'note') as ActivityType);
   const body = String(formData.get('body') ?? '').trim();
   if (!opportunityId || !body) return;
+  const me = getCurrentUser();
   db.activities.create({
     type,
     opportunityId,
     partyId,
+    actorId: me.id,
     body,
     at: new Date().toISOString()
   });
@@ -39,8 +43,9 @@ async function addTask(formData: FormData) {
   const partyId = String(formData.get('partyId') ?? '') || undefined;
   const title = String(formData.get('title') ?? '').trim();
   const due = String(formData.get('due') ?? '').trim();
+  const assigneeId = String(formData.get('assigneeId') ?? '') || undefined;
   if (!opportunityId || !title || !due) return;
-  db.tasks.create({ title, due, partyId, opportunityId });
+  db.tasks.create({ title, due, partyId, opportunityId, assigneeId });
   revalidatePath(`/opportunities/${opportunityId}`);
   revalidatePath('/tasks');
   revalidatePath('/');
@@ -51,7 +56,8 @@ async function toggleTask(formData: FormData) {
   'use server';
   const id = String(formData.get('id') ?? '');
   if (!id) return;
-  const t = db.tasks.toggleDone(id);
+  const me = getCurrentUser();
+  const t = db.tasks.toggleDone(id, me.id);
   revalidatePath('/tasks');
   revalidatePath('/');
   if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
@@ -75,7 +81,21 @@ async function updateStage(formData: FormData) {
   const id = String(formData.get('id') ?? '');
   const stage = String(formData.get('stage') ?? '');
   if (!id || !stage) return;
-  const opp = db.opportunities.setStage(id, stage);
+  const me = getCurrentUser();
+  const opp = db.opportunities.setStage(id, stage, me.id);
+  revalidatePath(`/opportunities/${id}`);
+  revalidatePath('/opportunities');
+  revalidatePath('/');
+  if (opp) revalidatePath(`/parties/${opp.partyId}`);
+}
+
+async function updateOwner(formData: FormData) {
+  'use server';
+  const id = String(formData.get('id') ?? '');
+  const ownerId = String(formData.get('ownerId') ?? '') || undefined;
+  if (!id) return;
+  const me = getCurrentUser();
+  const opp = db.opportunities.setOwner(id, ownerId, me.id);
   revalidatePath(`/opportunities/${id}`);
   revalidatePath('/opportunities');
   revalidatePath('/');
@@ -86,11 +106,15 @@ export default function OpportunityDetailPage({ params }: PageProps) {
   const opp = db.opportunities.get(params.id);
   if (!opp) notFound();
 
+  const me = getCurrentUser();
   const party = db.parties.get(opp.partyId);
   const pipeline = db.pipelines.get(opp.pipelineId);
   const kind = pipeline ? stageKind(pipeline, opp.stage) : 'open';
   const activities = db.activities.list({ opportunityId: opp.id });
   const tasks = db.tasks.list({ opportunityId: opp.id });
+  const users = db.users.list();
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const owner = opp.ownerId ? userById.get(opp.ownerId) : undefined;
   const dateOffset = (offsetDays: number) =>
     new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
 
@@ -122,6 +146,15 @@ export default function OpportunityDetailPage({ params }: PageProps) {
                   <label htmlFor="task-due">Due</label>
                   <input id="task-due" className="input" type="date" name="due" defaultValue={dateOffset(1)} required />
                 </div>
+                <div className="field">
+                  <label htmlFor="task-assignee">Assignee</label>
+                  <select id="task-assignee" name="assigneeId" defaultValue={opp.ownerId ?? me.id}>
+                    <option value="">— unassigned —</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div style={{ marginTop: 12 }}>
                 <button type="submit" className="btn btn-primary">Add task</button>
@@ -129,6 +162,7 @@ export default function OpportunityDetailPage({ params }: PageProps) {
             </form>
             <TaskList
               tasks={tasks}
+              userById={userById}
               toggleAction={toggleTask}
               deleteAction={deleteTask}
               hideLinks
@@ -159,7 +193,7 @@ export default function OpportunityDetailPage({ params }: PageProps) {
                 <button type="submit" className="btn btn-primary">Log activity</button>
               </div>
             </form>
-            <Timeline items={activities} />
+            <Timeline items={activities} userById={userById} />
           </div>
         </div>
 
@@ -169,6 +203,7 @@ export default function OpportunityDetailPage({ params }: PageProps) {
             <dl className="detail-meta">
               <dt>Party</dt>
               <dd>{party ? <Link href={`/parties/${party.id}`} className="link">{party.name}</Link> : '—'}</dd>
+              <dt>Owner</dt><dd>{owner?.name ?? '—'}</dd>
               <dt>Pipeline</dt><dd>{pipeline?.name ?? '—'}</dd>
               <dt>Stage</dt>
               <dd>
@@ -181,7 +216,7 @@ export default function OpportunityDetailPage({ params }: PageProps) {
             </dl>
           </div>
 
-          <div className="card">
+          <div className="card" style={{ marginBottom: 16 }}>
             <div className="section-title">Move stage</div>
             <form action={updateStage}>
               <input type="hidden" name="id" value={opp.id} />
@@ -189,6 +224,14 @@ export default function OpportunityDetailPage({ params }: PageProps) {
                 defaultValue={opp.stage}
                 stages={pipeline?.stages.map((s) => s.name) ?? []}
               />
+            </form>
+          </div>
+
+          <div className="card">
+            <div className="section-title">Reassign owner</div>
+            <form action={updateOwner}>
+              <input type="hidden" name="id" value={opp.id} />
+              <OwnerSelect users={users} defaultValue={opp.ownerId} />
             </form>
           </div>
         </aside>

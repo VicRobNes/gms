@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { Timeline } from '../../../components/Timeline';
 import { TaskList } from '../../../components/TaskList';
 import { db, type ActivityType } from '../../../lib/store';
+import { getCurrentUser } from '../../../lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,9 +21,11 @@ async function addActivity(formData: FormData) {
   const type = (String(formData.get('type') ?? 'note') as ActivityType);
   const body = String(formData.get('body') ?? '').trim();
   if (!partyId || !body) return;
+  const me = getCurrentUser();
   db.activities.create({
     type,
     partyId,
+    actorId: me.id,
     body,
     at: new Date().toISOString()
   });
@@ -36,8 +39,9 @@ async function addTask(formData: FormData) {
   const opportunityId = String(formData.get('opportunityId') ?? '') || undefined;
   const title = String(formData.get('title') ?? '').trim();
   const due = String(formData.get('due') ?? '').trim();
+  const assigneeId = String(formData.get('assigneeId') ?? '') || undefined;
   if (!partyId || !title || !due) return;
-  db.tasks.create({ title, due, partyId, opportunityId });
+  db.tasks.create({ title, due, partyId, opportunityId, assigneeId });
   revalidatePath(`/parties/${partyId}`);
   revalidatePath('/tasks');
   revalidatePath('/');
@@ -48,7 +52,8 @@ async function toggleTask(formData: FormData) {
   'use server';
   const id = String(formData.get('id') ?? '');
   if (!id) return;
-  const t = db.tasks.toggleDone(id);
+  const me = getCurrentUser();
+  const t = db.tasks.toggleDone(id, me.id);
   revalidatePath('/tasks');
   revalidatePath('/');
   if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
@@ -75,10 +80,13 @@ export default function PartyDetailPage({ params }: PageProps) {
   const partyById = new Map(allParties.map((p) => [p.id, p]));
   const org = party.organizationId ? partyById.get(party.organizationId) : undefined;
 
+  const me = getCurrentUser();
   const opps = db.opportunities.list().filter((o) => o.partyId === party.id);
   const oppById = new Map(opps.map((o) => [o.id, o]));
   const pipelines = db.pipelines.list();
   const pipelineById = new Map(pipelines.map((p) => [p.id, p]));
+  const users = db.users.list();
+  const userById = new Map(users.map((u) => [u.id, u]));
   const activities = db.activities.list({ partyId: party.id });
   const tasks = db.tasks.list({ partyId: party.id });
   const dateOffset = (offsetDays: number) =>
@@ -125,6 +133,15 @@ export default function PartyDetailPage({ params }: PageProps) {
                     ))}
                   </select>
                 </div>
+                <div className="field">
+                  <label htmlFor="task-assignee">Assignee</label>
+                  <select id="task-assignee" name="assigneeId" defaultValue={me.id}>
+                    <option value="">— unassigned —</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div style={{ marginTop: 12 }}>
                 <button type="submit" className="btn btn-primary">Add task</button>
@@ -134,6 +151,7 @@ export default function PartyDetailPage({ params }: PageProps) {
               tasks={tasks}
               partyById={partyById}
               oppById={oppById}
+              userById={userById}
               toggleAction={toggleTask}
               deleteAction={deleteTask}
               hideLinks
@@ -163,7 +181,7 @@ export default function PartyDetailPage({ params }: PageProps) {
                 <button type="submit" className="btn btn-primary">Log activity</button>
               </div>
             </form>
-            <Timeline items={activities} />
+            <Timeline items={activities} userById={userById} />
           </div>
         </div>
 
@@ -198,13 +216,21 @@ export default function PartyDetailPage({ params }: PageProps) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {opps.map((o) => {
                   const pipeline = pipelineById.get(o.pipelineId);
+                  const owner = o.ownerId ? userById.get(o.ownerId) : undefined;
                   return (
-                    <Link key={o.id} href={`/opportunities/${o.id}`} className="row between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>{o.title}</span>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        {formatCurrency(o.amount)} · {o.stage}
-                        {pipeline && pipeline.id !== db.pipelines.default().id ? ` (${pipeline.name})` : ''}
-                      </span>
+                    <Link key={o.id} href={`/opportunities/${o.id}`} style={{ borderBottom: '1px solid var(--border)', paddingBottom: 6, display: 'block' }}>
+                      <div className="row between">
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{o.title}</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                          {formatCurrency(o.amount)} · {o.stage}
+                          {pipeline && pipeline.id !== db.pipelines.default().id ? ` (${pipeline.name})` : ''}
+                        </span>
+                      </div>
+                      {owner && (
+                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                          Owner: {owner.name}
+                        </div>
+                      )}
                     </Link>
                   );
                 })}

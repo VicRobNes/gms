@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { db, stageKind, today } from '../lib/store';
+import { getCurrentUser } from '../lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,33 +8,46 @@ const formatCurrency = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
 export default function DashboardPage() {
+  const me = getCurrentUser();
   const parties = db.parties.list();
   const opportunities = db.opportunities.list();
   const pipelines = db.pipelines.list();
   const pipelineById = new Map(pipelines.map((p) => [p.id, p]));
   const partyById = new Map(parties.map((p) => [p.id, p]));
+  const users = db.users.list();
+  const userById = new Map(users.map((u) => [u.id, u]));
 
-  // KPIs derived from stage.kind, never from hardcoded names.
+  // Aggregate KPIs derived from stage.kind, never from hardcoded names.
   let openValue = 0;
   let wonValue = 0;
   let openCount = 0;
   let wonCount = 0;
   let lostCount = 0;
+  let myOpenValue = 0;
+  let myOpenCount = 0;
 
   for (const opp of opportunities) {
     const pipeline = pipelineById.get(opp.pipelineId);
     if (!pipeline) continue;
     const kind = stageKind(pipeline, opp.stage);
-    if (kind === 'open') { openValue += opp.amount; openCount += 1; }
-    else if (kind === 'won') { wonValue += opp.amount; wonCount += 1; }
-    else if (kind === 'lost') { lostCount += 1; }
+    if (kind === 'open') {
+      openValue += opp.amount;
+      openCount += 1;
+      if (opp.ownerId === me.id) {
+        myOpenValue += opp.amount;
+        myOpenCount += 1;
+      }
+    } else if (kind === 'won') {
+      wonValue += opp.amount;
+      wonCount += 1;
+    } else if (kind === 'lost') {
+      lostCount += 1;
+    }
   }
 
   const decided = wonCount + lostCount;
   const conversion = decided > 0 ? wonCount / decided : 0;
 
-  // Pipeline counts grouped by the default pipeline's stages (Stage 3 will
-  // make this multi-pipeline).
   const defaultPipeline = db.pipelines.default();
   const stageCounts = defaultPipeline.stages.map((s) => ({
     name: s.name,
@@ -56,25 +70,36 @@ export default function DashboardPage() {
 
   // Tasks
   const t = today();
-  const openTasks = db.tasks.list({ open: true });
-  const overdueTasks = openTasks.filter((x) => x.due < t).length;
-  const todayTasks = openTasks.filter((x) => x.due === t).length;
-  const upNext = openTasks.slice(0, 5);
+  const allOpenTasks = db.tasks.list({ open: true });
+  const myOpenTasks = allOpenTasks.filter((x) => x.assigneeId === me.id);
+  const myOverdue = myOpenTasks.filter((x) => x.due < t).length;
+  const myToday = myOpenTasks.filter((x) => x.due === t).length;
+  const upNext = myOpenTasks.slice(0, 5);
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h1>Dashboard</h1>
-          <p className="subtitle">{parties.length} parties · {opportunities.length} opportunities</p>
+          <h1>Welcome back, {me.name.split(' ')[0]}</h1>
+          <p className="subtitle">{parties.length} parties · {opportunities.length} opportunities · {users.length} team members</p>
         </div>
       </div>
 
       <div className="kpi-grid">
         <div className="card kpi">
-          <div className="label">Open pipeline</div>
-          <div className="value">{formatCurrency(openValue)}</div>
-          <div className="helper">{openCount} open opportunities</div>
+          <div className="label">My open pipeline</div>
+          <div className="value">{formatCurrency(myOpenValue)}</div>
+          <div className="helper">{myOpenCount} of {openCount} open</div>
+        </div>
+        <div className="card kpi">
+          <div className="label">My open tasks</div>
+          <div className="value">{myOpenTasks.length}</div>
+          <div className="helper">
+            {myOverdue > 0
+              ? <span style={{ color: 'var(--danger)' }}>{myOverdue} overdue</span>
+              : 'on track'}
+            {' · '}{myToday} today
+          </div>
         </div>
         <div className="card kpi">
           <div className="label">Won revenue</div>
@@ -85,16 +110,6 @@ export default function DashboardPage() {
           <div className="label">Conversion</div>
           <div className="value">{(conversion * 100).toFixed(1)}%</div>
           <div className="helper">won / decided ({decided})</div>
-        </div>
-        <div className="card kpi">
-          <div className="label">Open tasks</div>
-          <div className="value">{openTasks.length}</div>
-          <div className="helper">
-            {overdueTasks > 0
-              ? <span style={{ color: 'var(--danger)' }}>{overdueTasks} overdue</span>
-              : 'on track'}
-            {' · '}{todayTasks} today
-          </div>
         </div>
         <div className="card kpi">
           <div className="label">Parties</div>
@@ -130,9 +145,12 @@ export default function DashboardPage() {
         </div>
 
         <div className="card">
-          <div className="section-title">Up next</div>
+          <div className="row between" style={{ marginBottom: 12 }}>
+            <span className="section-title" style={{ marginBottom: 0 }}>Your up next</span>
+            <Link href="/tasks?view=open&mine=1" className="link" style={{ fontSize: 12 }}>See all →</Link>
+          </div>
           {upNext.length === 0 ? (
-            <div className="empty">No open tasks.</div>
+            <div className="empty">No open tasks assigned to you.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {upNext.map((task) => {
@@ -161,19 +179,23 @@ export default function DashboardPage() {
         </div>
 
         <div className="card">
-          <div className="section-title">Closing soon</div>
+          <div className="row between" style={{ marginBottom: 12 }}>
+            <span className="section-title" style={{ marginBottom: 0 }}>Closing soon</span>
+            <Link href="/opportunities" className="link" style={{ fontSize: 12 }}>See all →</Link>
+          </div>
           {upcoming.length === 0 ? (
             <div className="empty">No open opportunities.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {upcoming.map((opp) => {
                 const party = partyById.get(opp.partyId);
+                const owner = opp.ownerId ? userById.get(opp.ownerId) : undefined;
                 return (
                   <Link key={opp.id} href={`/opportunities/${opp.id}`} className="row between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 13 }}>{opp.title}</div>
                       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        {party?.name ?? 'Unknown'} · close {new Date(opp.closeDate).toLocaleDateString()}
+                        {party?.name ?? 'Unknown'} · {owner ? owner.name : 'unassigned'} · close {new Date(opp.closeDate).toLocaleDateString()}
                       </div>
                     </div>
                     <span className="badge" style={{ background: 'var(--surface-muted)' }}>

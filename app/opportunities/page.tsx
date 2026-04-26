@@ -1,12 +1,17 @@
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { db, stageKind } from '../../lib/store';
+import { getCurrentUser } from '../../lib/auth';
 import { StageSelect } from './StageSelect';
 
 export const dynamic = 'force-dynamic';
 
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+
+interface PageProps {
+  searchParams: { mine?: string };
+}
 
 async function createOpportunity(formData: FormData) {
   'use server';
@@ -16,8 +21,9 @@ async function createOpportunity(formData: FormData) {
   const stage = String(formData.get('stage') ?? '').trim();
   const amount = Number(formData.get('amount') ?? 0);
   const closeDate = String(formData.get('closeDate') ?? '').trim();
+  const ownerId = String(formData.get('ownerId') ?? '') || undefined;
   if (!title || !partyId || !pipelineId || !stage || !closeDate || Number.isNaN(amount)) return;
-  db.opportunities.create({ title, partyId, pipelineId, stage, amount, closeDate });
+  db.opportunities.create({ title, partyId, pipelineId, stage, amount, closeDate, ownerId });
   revalidatePath('/opportunities');
   revalidatePath('/');
 }
@@ -27,9 +33,14 @@ async function updateStage(formData: FormData) {
   const id = String(formData.get('id') ?? '');
   const stage = String(formData.get('stage') ?? '');
   if (!id || !stage) return;
-  db.opportunities.setStage(id, stage);
+  const me = getCurrentUser();
+  const opp = db.opportunities.setStage(id, stage, me.id);
   revalidatePath('/opportunities');
   revalidatePath('/');
+  if (opp) {
+    revalidatePath(`/opportunities/${opp.id}`);
+    revalidatePath(`/parties/${opp.partyId}`);
+  }
 }
 
 async function deleteOpportunity(formData: FormData) {
@@ -44,21 +55,33 @@ async function deleteOpportunity(formData: FormData) {
 const dateOffset = (offsetDays: number) =>
   new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
 
-export default function OpportunitiesPage() {
-  const opportunities = db.opportunities.list();
+export default function OpportunitiesPage({ searchParams }: PageProps) {
+  const me = getCurrentUser();
+  const mine = searchParams.mine === '1';
+
+  const allOpps = db.opportunities.list();
+  const opportunities = mine ? allOpps.filter((o) => o.ownerId === me.id) : allOpps;
   const parties = db.parties.list();
   const partyById = new Map(parties.map((p) => [p.id, p]));
   const pipelines = db.pipelines.list();
   const pipelineById = new Map(pipelines.map((p) => [p.id, p]));
+  const users = db.users.list();
+  const userById = new Map(users.map((u) => [u.id, u]));
   const defaultPipeline = db.pipelines.default();
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h1>Opportunities</h1>
-          <p className="subtitle">{opportunities.length} in pipeline</p>
+          <h1>Opportunities {mine ? <span style={{ color: 'var(--primary)' }}>· Mine</span> : null}</h1>
+          <p className="subtitle">{opportunities.length} {mine ? 'owned by you' : 'in pipeline'}</p>
         </div>
+        <Link
+          href={mine ? '/opportunities' : '/opportunities?mine=1'}
+          className={`btn ${mine ? 'btn-primary' : ''}`}
+        >
+          {mine ? 'Mine ✓' : 'Mine'}
+        </Link>
       </div>
 
       <div className="card" style={{ marginBottom: 22 }}>
@@ -79,6 +102,15 @@ export default function OpportunitiesPage() {
                     <option key={p.id} value={p.id}>
                       {p.name} {p.kind === 'organization' ? '(org)' : ''}
                     </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="o-owner">Owner</label>
+                <select id="o-owner" name="ownerId" defaultValue={me.id}>
+                  <option value="">— unassigned —</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
                   ))}
                 </select>
               </div>
@@ -120,6 +152,7 @@ export default function OpportunitiesPage() {
             <tr>
               <th>Title</th>
               <th>Party</th>
+              <th>Owner</th>
               <th>Pipeline</th>
               <th>Amount</th>
               <th>Close</th>
@@ -132,12 +165,14 @@ export default function OpportunitiesPage() {
               const party = partyById.get(o.partyId);
               const pipeline = pipelineById.get(o.pipelineId);
               const kind = pipeline ? stageKind(pipeline, o.stage) : 'open';
+              const owner = o.ownerId ? userById.get(o.ownerId) : undefined;
               return (
                 <tr key={o.id}>
                   <td><Link href={`/opportunities/${o.id}`} className="link"><strong>{o.title}</strong></Link></td>
                   <td>{party
                     ? <Link href={`/parties/${party.id}`} className="link">{party.name}</Link>
                     : <span style={{ color: 'var(--text-muted)' }}>Unknown</span>}</td>
+                  <td>{owner?.name ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                   <td>{pipeline?.name ?? '—'}</td>
                   <td>{formatCurrency(o.amount)}</td>
                   <td>{new Date(o.closeDate).toLocaleDateString()}</td>
@@ -163,7 +198,7 @@ export default function OpportunitiesPage() {
               );
             })}
             {opportunities.length === 0 && (
-              <tr><td colSpan={7} className="empty">No opportunities yet.</td></tr>
+              <tr><td colSpan={8} className="empty">No opportunities yet.</td></tr>
             )}
           </tbody>
         </table>

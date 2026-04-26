@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { TaskList } from '../../components/TaskList';
 import { db, today } from '../../lib/store';
+import { getCurrentUser } from '../../lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,7 @@ const VIEWS: { id: View; label: string }[] = [
 ];
 
 interface PageProps {
-  searchParams: { view?: string };
+  searchParams: { view?: string; mine?: string };
 }
 
 const dateOffset = (offsetDays: number) =>
@@ -28,8 +29,9 @@ async function createTask(formData: FormData) {
   const due = String(formData.get('due') ?? '').trim();
   const partyId = String(formData.get('partyId') ?? '') || undefined;
   const opportunityId = String(formData.get('opportunityId') ?? '') || undefined;
+  const assigneeId = String(formData.get('assigneeId') ?? '') || undefined;
   if (!title || !due) return;
-  db.tasks.create({ title, due, partyId, opportunityId });
+  db.tasks.create({ title, due, partyId, opportunityId, assigneeId });
   revalidatePath('/tasks');
   revalidatePath('/');
   if (partyId) revalidatePath(`/parties/${partyId}`);
@@ -40,7 +42,8 @@ async function toggleTask(formData: FormData) {
   'use server';
   const id = String(formData.get('id') ?? '');
   if (!id) return;
-  const t = db.tasks.toggleDone(id);
+  const me = getCurrentUser();
+  const t = db.tasks.toggleDone(id, me.id);
   revalidatePath('/tasks');
   revalidatePath('/');
   if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
@@ -61,49 +64,66 @@ async function deleteTask(formData: FormData) {
 
 export default function TasksPage({ searchParams }: PageProps) {
   const view: View = (VIEWS.some((v) => v.id === searchParams.view) ? searchParams.view : 'open') as View;
+  const mine = searchParams.mine === '1';
+  const me = getCurrentUser();
   const t = today();
 
-  let items;
-  if (view === 'open')          items = db.tasks.list({ open: true });
-  else if (view === 'today')    items = db.tasks.list({ open: true, dueOn: t });
-  else if (view === 'overdue')  items = db.tasks.list({ open: true, dueBefore: t });
-  else if (view === 'upcoming') items = db.tasks.list({ open: true }).filter((x) => x.due > t);
-  else                          items = db.tasks.list({ open: false });
+  const filterByView = (open: boolean) =>
+    view === 'open'     ? db.tasks.list({ open: true }) :
+    view === 'today'    ? db.tasks.list({ open: true, dueOn: t }) :
+    view === 'overdue'  ? db.tasks.list({ open: true, dueBefore: t }) :
+    view === 'upcoming' ? db.tasks.list({ open: true }).filter((x) => x.due > t) :
+                          db.tasks.list({ open: false });
 
-  // Counts for chip badges
-  const openAll = db.tasks.list({ open: true });
+  let items = filterByView(view !== 'done');
+  if (mine) items = items.filter((x) => x.assigneeId === me.id);
+
+  // Counts for chip badges (respect the "mine" toggle)
+  const allTasks = db.tasks.list();
+  const scope = mine ? allTasks.filter((x) => x.assigneeId === me.id) : allTasks;
+  const openScope = scope.filter((x) => !x.done);
   const counts = {
-    open: openAll.length,
-    today: openAll.filter((x) => x.due === t).length,
-    overdue: openAll.filter((x) => x.due < t).length,
-    upcoming: openAll.filter((x) => x.due > t).length,
-    done: db.tasks.list({ open: false }).length
+    open: openScope.length,
+    today: openScope.filter((x) => x.due === t).length,
+    overdue: openScope.filter((x) => x.due < t).length,
+    upcoming: openScope.filter((x) => x.due > t).length,
+    done: scope.filter((x) => x.done).length
   } as const;
 
   const parties = db.parties.list();
   const partyById = new Map(parties.map((p) => [p.id, p]));
   const opps = db.opportunities.list();
   const oppById = new Map(opps.map((o) => [o.id, o]));
+  const users = db.users.list();
+  const userById = new Map(users.map((u) => [u.id, u]));
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h1>Tasks</h1>
+          <h1>Tasks {mine ? <span style={{ color: 'var(--primary)' }}>· Mine</span> : null}</h1>
           <p className="subtitle">{counts.open} open · {counts.overdue} overdue · {counts.today} today</p>
         </div>
       </div>
 
-      <div className="row" style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+      <div className="row" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
         {VIEWS.map((v) => (
           <Link
             key={v.id}
-            href={`/tasks?view=${v.id}`}
+            href={`/tasks?view=${v.id}${mine ? '&mine=1' : ''}`}
             className={`btn ${view === v.id ? 'btn-primary' : ''}`}
           >
             {v.label} <span style={{ marginLeft: 6, opacity: 0.7 }}>({counts[v.id]})</span>
           </Link>
         ))}
+        <span style={{ flex: 1 }} />
+        <Link
+          href={`/tasks?view=${view}${mine ? '' : '&mine=1'}`}
+          className={`btn ${mine ? 'btn-primary' : ''}`}
+          title={mine ? 'Show all' : `Show only ${me.name}'s tasks`}
+        >
+          {mine ? 'Mine ✓' : 'Mine'}
+        </Link>
       </div>
 
       <div className="card" style={{ marginBottom: 22 }}>
@@ -117,6 +137,15 @@ export default function TasksPage({ searchParams }: PageProps) {
             <div className="field">
               <label htmlFor="t-due">Due</label>
               <input id="t-due" className="input" type="date" name="due" defaultValue={dateOffset(1)} required />
+            </div>
+            <div className="field">
+              <label htmlFor="t-assignee">Assignee</label>
+              <select id="t-assignee" name="assigneeId" defaultValue={me.id}>
+                <option value="">— unassigned —</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
             </div>
             <div className="field">
               <label htmlFor="t-party">Party</label>
@@ -147,6 +176,7 @@ export default function TasksPage({ searchParams }: PageProps) {
         tasks={items}
         partyById={partyById}
         oppById={oppById}
+        userById={userById}
         toggleAction={toggleTask}
         deleteAction={deleteTask}
       />

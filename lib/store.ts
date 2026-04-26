@@ -1,12 +1,26 @@
 // Universal CRM data model — six primitives, three joins.
-// Stages 1-3 ship: Party, Pipeline, Opportunity, Activity, Task.
-// Stage 4+ will add: User. Same store shape.
+// Stages 1-4 ship: Party, Pipeline, Opportunity, Activity, Task, User.
 
 const randomUUID = (): string => globalThis.crypto.randomUUID();
 const now = (): string => new Date().toISOString();
 export const today = (): string => new Date().toISOString().slice(0, 10);
 const dateOnly = (offsetDays = 0): string =>
   new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+
+// ---------- User ---------------------------------------------------------
+// The actor in the system. Owns Opportunities, is assigned Tasks, authors
+// Activities. Real auth lands later; for now the active user is held in
+// a cookie so multiple-seat workflows can be tested.
+
+export type UserRole = 'owner' | 'admin' | 'member';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  createdAt: string;
+}
 
 // ---------- Party --------------------------------------------------------
 // One table for both people and organizations, discriminated by `kind`.
@@ -55,6 +69,7 @@ export interface Opportunity {
   stage: string; // matches a stage.name in the pipeline
   amount: number;
   closeDate: string;
+  ownerId?: string;
   createdAt: string;
 }
 
@@ -70,6 +85,7 @@ export interface Activity {
   type: ActivityType;
   partyId?: string;
   opportunityId?: string;
+  actorId?: string;  // who logged it (current user)
   body: string;
   at: string;        // when it happened
   createdAt: string; // when it was logged
@@ -88,6 +104,7 @@ export interface Task {
   doneAt?: string;
   partyId?: string;
   opportunityId?: string;
+  assigneeId?: string;
   createdAt: string;
 }
 
@@ -99,11 +116,22 @@ interface DB {
   opportunities: Opportunity[];
   activities: Activity[];
   tasks: Task[];
+  users: User[];
 }
 
 const globalForDB = globalThis as unknown as { __crmDB?: DB };
 
 const seed = (): DB => {
+  const sasha = randomUUID();
+  const taylor = randomUUID();
+  const morgan = randomUUID();
+
+  const users: User[] = [
+    { id: sasha,  name: 'Sasha Lee',     email: 'sasha@gms.example',  role: 'owner',  createdAt: now() },
+    { id: taylor, name: 'Taylor Brooks', email: 'taylor@gms.example', role: 'admin',  createdAt: now() },
+    { id: morgan, name: 'Morgan Quinn',  email: 'morgan@gms.example', role: 'member', createdAt: now() }
+  ];
+
   const summit = randomUUID();
   const blueRidge = randomUUID();
   const coastline = randomUUID();
@@ -133,9 +161,9 @@ const seed = (): DB => {
   ];
 
   const opportunities: Opportunity[] = [
-    { id: randomUUID(), title: 'Bali honeymoon package',   partyId: summit,    pipelineId: salesPipelineId, stage: 'Proposal',  amount: 9500, closeDate: '2026-07-12', createdAt: now() },
-    { id: randomUUID(), title: 'Patagonia trekking trip',  partyId: blueRidge, pipelineId: salesPipelineId, stage: 'Qualified', amount: 6200, closeDate: '2026-09-03', createdAt: now() },
-    { id: randomUUID(), title: 'Tokyo + Kyoto custom tour',partyId: coastline, pipelineId: salesPipelineId, stage: 'New',       amount: 4800, closeDate: '2026-12-18', createdAt: now() }
+    { id: randomUUID(), title: 'Bali honeymoon package',    partyId: summit,    pipelineId: salesPipelineId, stage: 'Proposal',  amount: 9500, closeDate: '2026-07-12', ownerId: sasha,  createdAt: now() },
+    { id: randomUUID(), title: 'Patagonia trekking trip',   partyId: blueRidge, pipelineId: salesPipelineId, stage: 'Qualified', amount: 6200, closeDate: '2026-09-03', ownerId: taylor, createdAt: now() },
+    { id: randomUUID(), title: 'Tokyo + Kyoto custom tour', partyId: coastline, pipelineId: salesPipelineId, stage: 'New',       amount: 4800, closeDate: '2026-12-18', ownerId: morgan, createdAt: now() }
   ];
 
   const activities: Activity[] = [
@@ -144,6 +172,7 @@ const seed = (): DB => {
       type: 'note',
       partyId: summit,
       opportunityId: opportunities[0]!.id,
+      actorId: sasha,
       body: 'Client prefers overwater villas, allergic to shellfish.',
       at: now(),
       createdAt: now()
@@ -153,6 +182,7 @@ const seed = (): DB => {
       type: 'call',
       partyId: blueRidge,
       opportunityId: opportunities[1]!.id,
+      actorId: taylor,
       body: '15-min discovery call. Wants Patagonia in Q3, group of 1.',
       at: now(),
       createdAt: now()
@@ -167,6 +197,7 @@ const seed = (): DB => {
       done: false,
       partyId: summit,
       opportunityId: opportunities[0]!.id,
+      assigneeId: sasha,
       createdAt: now()
     },
     {
@@ -176,6 +207,7 @@ const seed = (): DB => {
       done: false,
       partyId: blueRidge,
       opportunityId: opportunities[1]!.id,
+      assigneeId: taylor,
       createdAt: now()
     },
     {
@@ -185,6 +217,7 @@ const seed = (): DB => {
       done: false,
       partyId: coastline,
       opportunityId: opportunities[2]!.id,
+      assigneeId: morgan,
       createdAt: now()
     },
     {
@@ -192,11 +225,12 @@ const seed = (): DB => {
       title: 'Confirm vendor contracts',
       due: dateOnly(0),
       done: false,
+      assigneeId: sasha,
       createdAt: now()
     }
   ];
 
-  return { parties, pipelines, opportunities, activities, tasks };
+  return { parties, pipelines, opportunities, activities, tasks, users };
 };
 
 const ensure = (): DB => {
@@ -263,7 +297,7 @@ export const db = {
       ensure().opportunities.push(opp);
       return opp;
     },
-    setStage(id: string, stage: string): Opportunity | undefined {
+    setStage(id: string, stage: string, actorId?: string): Opportunity | undefined {
       const s = ensure();
       const opp = s.opportunities.find((o) => o.id === id);
       if (!opp) return undefined;
@@ -276,7 +310,29 @@ export const db = {
         type: 'log',
         partyId: opp.partyId,
         opportunityId: opp.id,
+        actorId,
         body: `Stage moved from "${previous}" to "${stage}"`,
+        at: now(),
+        createdAt: now()
+      });
+      return opp;
+    },
+    setOwner(id: string, ownerId: string | undefined, actorId?: string): Opportunity | undefined {
+      const s = ensure();
+      const opp = s.opportunities.find((o) => o.id === id);
+      if (!opp) return undefined;
+      const previous = opp.ownerId;
+      if (previous === ownerId) return opp;
+      opp.ownerId = ownerId;
+      const ownerName = ownerId ? s.users.find((u) => u.id === ownerId)?.name ?? '?' : 'unassigned';
+      const previousName = previous ? s.users.find((u) => u.id === previous)?.name ?? '?' : 'unassigned';
+      s.activities.push({
+        id: randomUUID(),
+        type: 'log',
+        partyId: opp.partyId,
+        opportunityId: opp.id,
+        actorId,
+        body: `Owner changed from ${previousName} to ${ownerName}`,
         at: now(),
         createdAt: now()
       });
@@ -338,7 +394,7 @@ export const db = {
     get(id: string): Task | undefined {
       return ensure().tasks.find((t) => t.id === id);
     },
-    create(input: { title: string; due: string; partyId?: string; opportunityId?: string }): Task {
+    create(input: { title: string; due: string; partyId?: string; opportunityId?: string; assigneeId?: string }): Task {
       const task: Task = {
         id: randomUUID(),
         title: input.title,
@@ -346,12 +402,13 @@ export const db = {
         done: false,
         partyId: input.partyId,
         opportunityId: input.opportunityId,
+        assigneeId: input.assigneeId,
         createdAt: now()
       };
       ensure().tasks.push(task);
       return task;
     },
-    toggleDone(id: string): Task | undefined {
+    toggleDone(id: string, actorId?: string): Task | undefined {
       const s = ensure();
       const t = s.tasks.find((x) => x.id === id);
       if (!t) return undefined;
@@ -364,6 +421,7 @@ export const db = {
           type: 'log',
           partyId: t.partyId,
           opportunityId: t.opportunityId,
+          actorId,
           body: `Task completed: "${t.title}"`,
           at: now(),
           createdAt: now()
@@ -373,11 +431,41 @@ export const db = {
       }
       return t;
     },
+    setAssignee(id: string, assigneeId: string | undefined, actorId?: string): Task | undefined {
+      const s = ensure();
+      const t = s.tasks.find((x) => x.id === id);
+      if (!t) return undefined;
+      const previous = t.assigneeId;
+      if (previous === assigneeId) return t;
+      t.assigneeId = assigneeId;
+      const newName = assigneeId ? s.users.find((u) => u.id === assigneeId)?.name ?? '?' : 'unassigned';
+      const prevName = previous ? s.users.find((u) => u.id === previous)?.name ?? '?' : 'unassigned';
+      s.activities.push({
+        id: randomUUID(),
+        type: 'log',
+        partyId: t.partyId,
+        opportunityId: t.opportunityId,
+        actorId,
+        body: `Task "${t.title}" reassigned from ${prevName} to ${newName}`,
+        at: now(),
+        createdAt: now()
+      });
+      return t;
+    },
     delete(id: string): boolean {
       const s = ensure();
       const before = s.tasks.length;
       s.tasks = s.tasks.filter((t) => t.id !== id);
       return s.tasks.length < before;
+    }
+  },
+
+  users: {
+    list(): User[] {
+      return [...ensure().users].sort((a, b) => a.name.localeCompare(b.name));
+    },
+    get(id: string): User | undefined {
+      return ensure().users.find((u) => u.id === id);
     }
   }
 };
