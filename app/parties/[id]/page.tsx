@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { Timeline } from '../../../components/Timeline';
+import { TaskList } from '../../../components/TaskList';
 import { db, type ActivityType } from '../../../lib/store';
 
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,43 @@ async function addActivity(formData: FormData) {
   revalidatePath('/parties');
 }
 
+async function addTask(formData: FormData) {
+  'use server';
+  const partyId = String(formData.get('partyId') ?? '');
+  const opportunityId = String(formData.get('opportunityId') ?? '') || undefined;
+  const title = String(formData.get('title') ?? '').trim();
+  const due = String(formData.get('due') ?? '').trim();
+  if (!partyId || !title || !due) return;
+  db.tasks.create({ title, due, partyId, opportunityId });
+  revalidatePath(`/parties/${partyId}`);
+  revalidatePath('/tasks');
+  revalidatePath('/');
+  if (opportunityId) revalidatePath(`/opportunities/${opportunityId}`);
+}
+
+async function toggleTask(formData: FormData) {
+  'use server';
+  const id = String(formData.get('id') ?? '');
+  if (!id) return;
+  const t = db.tasks.toggleDone(id);
+  revalidatePath('/tasks');
+  revalidatePath('/');
+  if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
+  if (t?.opportunityId) revalidatePath(`/opportunities/${t.opportunityId}`);
+}
+
+async function deleteTask(formData: FormData) {
+  'use server';
+  const id = String(formData.get('id') ?? '');
+  if (!id) return;
+  const t = db.tasks.get(id);
+  db.tasks.delete(id);
+  revalidatePath('/tasks');
+  revalidatePath('/');
+  if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
+  if (t?.opportunityId) revalidatePath(`/opportunities/${t.opportunityId}`);
+}
+
 export default function PartyDetailPage({ params }: PageProps) {
   const party = db.parties.get(params.id);
   if (!party) notFound();
@@ -38,9 +76,13 @@ export default function PartyDetailPage({ params }: PageProps) {
   const org = party.organizationId ? partyById.get(party.organizationId) : undefined;
 
   const opps = db.opportunities.list().filter((o) => o.partyId === party.id);
+  const oppById = new Map(opps.map((o) => [o.id, o]));
   const pipelines = db.pipelines.list();
   const pipelineById = new Map(pipelines.map((p) => [p.id, p]));
   const activities = db.activities.list({ partyId: party.id });
+  const tasks = db.tasks.list({ partyId: party.id });
+  const dateOffset = (offsetDays: number) =>
+    new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
 
   const members = party.kind === 'organization'
     ? allParties.filter((p) => p.kind === 'person' && p.organizationId === party.id)
@@ -61,6 +103,43 @@ export default function PartyDetailPage({ params }: PageProps) {
 
       <div className="detail-grid">
         <div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="section-title">Tasks</div>
+            <form action={addTask} style={{ marginBottom: 16 }}>
+              <input type="hidden" name="partyId" value={party.id} />
+              <div className="form-grid">
+                <div className="field" style={{ gridColumn: 'span 2' }}>
+                  <label htmlFor="task-title">Title</label>
+                  <input id="task-title" className="input" name="title" required />
+                </div>
+                <div className="field">
+                  <label htmlFor="task-due">Due</label>
+                  <input id="task-due" className="input" type="date" name="due" defaultValue={dateOffset(1)} required />
+                </div>
+                <div className="field">
+                  <label htmlFor="task-opp">Opportunity</label>
+                  <select id="task-opp" name="opportunityId" defaultValue="">
+                    <option value="">— none —</option>
+                    {opps.map((o) => (
+                      <option key={o.id} value={o.id}>{o.title}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <button type="submit" className="btn btn-primary">Add task</button>
+              </div>
+            </form>
+            <TaskList
+              tasks={tasks}
+              partyById={partyById}
+              oppById={oppById}
+              toggleAction={toggleTask}
+              deleteAction={deleteTask}
+              hideLinks
+            />
+          </div>
+
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="section-title">Activity</div>
             <form action={addActivity} style={{ marginBottom: 16 }}>

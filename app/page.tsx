@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { db, stageKind } from '../lib/store';
+import { db, stageKind, today } from '../lib/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,6 +54,13 @@ export default function DashboardPage() {
   const personCount = parties.filter((p) => p.kind === 'person').length;
   const orgCount = parties.filter((p) => p.kind === 'organization').length;
 
+  // Tasks
+  const t = today();
+  const openTasks = db.tasks.list({ open: true });
+  const overdueTasks = openTasks.filter((x) => x.due < t).length;
+  const todayTasks = openTasks.filter((x) => x.due === t).length;
+  const upNext = openTasks.slice(0, 5);
+
   return (
     <div>
       <div className="page-header">
@@ -78,6 +85,16 @@ export default function DashboardPage() {
           <div className="label">Conversion</div>
           <div className="value">{(conversion * 100).toFixed(1)}%</div>
           <div className="helper">won / decided ({decided})</div>
+        </div>
+        <div className="card kpi">
+          <div className="label">Open tasks</div>
+          <div className="value">{openTasks.length}</div>
+          <div className="helper">
+            {overdueTasks > 0
+              ? <span style={{ color: 'var(--danger)' }}>{overdueTasks} overdue</span>
+              : 'on track'}
+            {' · '}{todayTasks} today
+          </div>
         </div>
         <div className="card kpi">
           <div className="label">Parties</div>
@@ -110,6 +127,37 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
+        </div>
+
+        <div className="card">
+          <div className="section-title">Up next</div>
+          {upNext.length === 0 ? (
+            <div className="empty">No open tasks.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {upNext.map((task) => {
+                const tone = task.due < t ? 'overdue' : task.due === t ? 'today' : 'soon';
+                const link = task.opportunityId
+                  ? `/opportunities/${task.opportunityId}`
+                  : task.partyId
+                  ? `/parties/${task.partyId}`
+                  : '/tasks';
+                return (
+                  <Link key={task.id} href={link} className="row between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{task.title}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                        {task.partyId ? partyById.get(task.partyId)?.name ?? '' : 'Standalone'}
+                      </div>
+                    </div>
+                    <span className={`badge task-due-${tone}`}>
+                      {task.due === t ? 'Today' : task.due}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="card">

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { Timeline } from '../../../components/Timeline';
+import { TaskList } from '../../../components/TaskList';
 import { db, stageKind, type ActivityType } from '../../../lib/store';
 import { StageSelect } from '../StageSelect';
 
@@ -32,6 +33,43 @@ async function addActivity(formData: FormData) {
   if (partyId) revalidatePath(`/parties/${partyId}`);
 }
 
+async function addTask(formData: FormData) {
+  'use server';
+  const opportunityId = String(formData.get('opportunityId') ?? '');
+  const partyId = String(formData.get('partyId') ?? '') || undefined;
+  const title = String(formData.get('title') ?? '').trim();
+  const due = String(formData.get('due') ?? '').trim();
+  if (!opportunityId || !title || !due) return;
+  db.tasks.create({ title, due, partyId, opportunityId });
+  revalidatePath(`/opportunities/${opportunityId}`);
+  revalidatePath('/tasks');
+  revalidatePath('/');
+  if (partyId) revalidatePath(`/parties/${partyId}`);
+}
+
+async function toggleTask(formData: FormData) {
+  'use server';
+  const id = String(formData.get('id') ?? '');
+  if (!id) return;
+  const t = db.tasks.toggleDone(id);
+  revalidatePath('/tasks');
+  revalidatePath('/');
+  if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
+  if (t?.opportunityId) revalidatePath(`/opportunities/${t.opportunityId}`);
+}
+
+async function deleteTask(formData: FormData) {
+  'use server';
+  const id = String(formData.get('id') ?? '');
+  if (!id) return;
+  const t = db.tasks.get(id);
+  db.tasks.delete(id);
+  revalidatePath('/tasks');
+  revalidatePath('/');
+  if (t?.partyId) revalidatePath(`/parties/${t.partyId}`);
+  if (t?.opportunityId) revalidatePath(`/opportunities/${t.opportunityId}`);
+}
+
 async function updateStage(formData: FormData) {
   'use server';
   const id = String(formData.get('id') ?? '');
@@ -52,6 +90,9 @@ export default function OpportunityDetailPage({ params }: PageProps) {
   const pipeline = db.pipelines.get(opp.pipelineId);
   const kind = pipeline ? stageKind(pipeline, opp.stage) : 'open';
   const activities = db.activities.list({ opportunityId: opp.id });
+  const tasks = db.tasks.list({ opportunityId: opp.id });
+  const dateOffset = (offsetDays: number) =>
+    new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
 
   return (
     <div>
@@ -67,6 +108,33 @@ export default function OpportunityDetailPage({ params }: PageProps) {
 
       <div className="detail-grid">
         <div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="section-title">Tasks</div>
+            <form action={addTask} style={{ marginBottom: 16 }}>
+              <input type="hidden" name="opportunityId" value={opp.id} />
+              {party && <input type="hidden" name="partyId" value={party.id} />}
+              <div className="form-grid">
+                <div className="field" style={{ gridColumn: 'span 2' }}>
+                  <label htmlFor="task-title">Title</label>
+                  <input id="task-title" className="input" name="title" required />
+                </div>
+                <div className="field">
+                  <label htmlFor="task-due">Due</label>
+                  <input id="task-due" className="input" type="date" name="due" defaultValue={dateOffset(1)} required />
+                </div>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <button type="submit" className="btn btn-primary">Add task</button>
+              </div>
+            </form>
+            <TaskList
+              tasks={tasks}
+              toggleAction={toggleTask}
+              deleteAction={deleteTask}
+              hideLinks
+            />
+          </div>
+
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="section-title">Activity</div>
             <form action={addActivity} style={{ marginBottom: 16 }}>

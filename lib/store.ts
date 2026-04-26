@@ -1,9 +1,12 @@
 // Universal CRM data model — six primitives, three joins.
-// Stages 1-2 ship: Party, Pipeline, Opportunity, Activity.
-// Stage 3+ will add: Task, User. Same store shape.
+// Stages 1-3 ship: Party, Pipeline, Opportunity, Activity, Task.
+// Stage 4+ will add: User. Same store shape.
 
 const randomUUID = (): string => globalThis.crypto.randomUUID();
 const now = (): string => new Date().toISOString();
+export const today = (): string => new Date().toISOString().slice(0, 10);
+const dateOnly = (offsetDays = 0): string =>
+  new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
 
 // ---------- Party --------------------------------------------------------
 // One table for both people and organizations, discriminated by `kind`.
@@ -72,6 +75,22 @@ export interface Activity {
   createdAt: string; // when it was logged
 }
 
+// ---------- Task ---------------------------------------------------------
+// Anything that needs to happen. Same join shape as Activity, so a single
+// todo surfaces in /tasks, on the linked Party detail, and on the linked
+// Opportunity detail.
+
+export interface Task {
+  id: string;
+  title: string;
+  due: string;        // ISO date YYYY-MM-DD
+  done: boolean;
+  doneAt?: string;
+  partyId?: string;
+  opportunityId?: string;
+  createdAt: string;
+}
+
 // ---------- DB -----------------------------------------------------------
 
 interface DB {
@@ -79,6 +98,7 @@ interface DB {
   pipelines: Pipeline[];
   opportunities: Opportunity[];
   activities: Activity[];
+  tasks: Task[];
 }
 
 const globalForDB = globalThis as unknown as { __crmDB?: DB };
@@ -139,7 +159,44 @@ const seed = (): DB => {
     }
   ];
 
-  return { parties, pipelines, opportunities, activities };
+  const tasks: Task[] = [
+    {
+      id: randomUUID(),
+      title: 'Send Bali itinerary draft',
+      due: dateOnly(2),
+      done: false,
+      partyId: summit,
+      opportunityId: opportunities[0]!.id,
+      createdAt: now()
+    },
+    {
+      id: randomUUID(),
+      title: 'Follow up on Patagonia inquiry',
+      due: dateOnly(-1),
+      done: false,
+      partyId: blueRidge,
+      opportunityId: opportunities[1]!.id,
+      createdAt: now()
+    },
+    {
+      id: randomUUID(),
+      title: 'Prep Tokyo+Kyoto pricing options',
+      due: dateOnly(7),
+      done: false,
+      partyId: coastline,
+      opportunityId: opportunities[2]!.id,
+      createdAt: now()
+    },
+    {
+      id: randomUUID(),
+      title: 'Confirm vendor contracts',
+      due: dateOnly(0),
+      done: false,
+      createdAt: now()
+    }
+  ];
+
+  return { parties, pipelines, opportunities, activities, tasks };
 };
 
 const ensure = (): DB => {
@@ -168,11 +225,13 @@ export const db = {
       const s = ensure();
       const before = s.parties.length;
       s.parties = s.parties.filter((p) => p.id !== id);
-      // cascade: remove opportunities + activities for this party,
+      // cascade: remove opportunities + activities + tasks for this party,
       // unlink persons that worked here.
       const droppedOppIds = new Set(s.opportunities.filter((o) => o.partyId === id).map((o) => o.id));
       s.opportunities = s.opportunities.filter((o) => o.partyId !== id);
-      s.activities = s.activities.filter((a) => a.partyId !== id && !(a.opportunityId && droppedOppIds.has(a.opportunityId)));
+      const isOrphaned = (id2: string | undefined) => !!id2 && droppedOppIds.has(id2);
+      s.activities = s.activities.filter((a) => a.partyId !== id && !isOrphaned(a.opportunityId));
+      s.tasks = s.tasks.filter((t) => t.partyId !== id && !isOrphaned(t.opportunityId));
       s.parties = s.parties.map((p) =>
         p.organizationId === id ? { ...p, organizationId: undefined } : p
       );
@@ -227,8 +286,9 @@ export const db = {
       const s = ensure();
       const before = s.opportunities.length;
       s.opportunities = s.opportunities.filter((o) => o.id !== id);
-      // cascade: drop activities tied only to this opportunity
+      // cascade: drop activities + tasks tied to this opportunity
       s.activities = s.activities.filter((a) => a.opportunityId !== id);
+      s.tasks = s.tasks.filter((t) => t.opportunityId !== id);
       return s.opportunities.length < before;
     }
   },
@@ -250,6 +310,74 @@ export const db = {
       const before = s.activities.length;
       s.activities = s.activities.filter((a) => a.id !== id);
       return s.activities.length < before;
+    }
+  },
+
+  tasks: {
+    list(filter?: {
+      open?: boolean;
+      partyId?: string;
+      opportunityId?: string;
+      dueBefore?: string;
+      dueOn?: string;
+    }): Task[] {
+      let items = ensure().tasks;
+      if (filter?.open === true)  items = items.filter((t) => !t.done);
+      if (filter?.open === false) items = items.filter((t) => t.done);
+      if (filter?.partyId)        items = items.filter((t) => t.partyId === filter.partyId);
+      if (filter?.opportunityId)  items = items.filter((t) => t.opportunityId === filter.opportunityId);
+      if (filter?.dueBefore)      items = items.filter((t) => t.due < filter.dueBefore!);
+      if (filter?.dueOn)          items = items.filter((t) => t.due === filter.dueOn);
+      // primary sort: due asc, secondary: createdAt desc (newest task wins ties)
+      return [...items].sort((a, b) =>
+        a.due === b.due
+          ? Date.parse(b.createdAt) - Date.parse(a.createdAt)
+          : a.due.localeCompare(b.due)
+      );
+    },
+    get(id: string): Task | undefined {
+      return ensure().tasks.find((t) => t.id === id);
+    },
+    create(input: { title: string; due: string; partyId?: string; opportunityId?: string }): Task {
+      const task: Task = {
+        id: randomUUID(),
+        title: input.title,
+        due: input.due,
+        done: false,
+        partyId: input.partyId,
+        opportunityId: input.opportunityId,
+        createdAt: now()
+      };
+      ensure().tasks.push(task);
+      return task;
+    },
+    toggleDone(id: string): Task | undefined {
+      const s = ensure();
+      const t = s.tasks.find((x) => x.id === id);
+      if (!t) return undefined;
+      t.done = !t.done;
+      if (t.done) {
+        t.doneAt = now();
+        // auto-log: visible in any timeline this task was attached to
+        s.activities.push({
+          id: randomUUID(),
+          type: 'log',
+          partyId: t.partyId,
+          opportunityId: t.opportunityId,
+          body: `Task completed: "${t.title}"`,
+          at: now(),
+          createdAt: now()
+        });
+      } else {
+        t.doneAt = undefined;
+      }
+      return t;
+    },
+    delete(id: string): boolean {
+      const s = ensure();
+      const before = s.tasks.length;
+      s.tasks = s.tasks.filter((t) => t.id !== id);
+      return s.tasks.length < before;
     }
   }
 };
