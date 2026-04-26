@@ -27,77 +27,78 @@ A Vercel-targeted CRM for tourism marketing agencies. Two deployable apps in one
 
 ## Quick start (local)
 
-```bash
-# 1. Backend (port 3000)
-npm install
-npm test                    # vitest
-npm run dev                 # vercel dev (or: npx tsx watch src/index.ts)
+The Next.js app in `frontend/` mounts the Hono backend as a catch-all
+API route, so you only need to run one process for the full product:
 
-# 2. Frontend (port 3001)
+```bash
+# Run UI + API together on http://localhost:3000
 cd frontend
 npm install
-cp .env.example .env.local  # NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
-npm run dev -- -p 3001
+npm run dev
 ```
 
-Sign in with any seeded email:
+Then sign in with any seeded email:
 - `owner@summittrails.example`
 - `admin@summittrails.example`
 - `agent@summittrails.example`
 - `analyst@summittrails.example`
 
+For backend-only iteration (no UI), the standalone Hono server still works:
+
+```bash
+npm install
+npm test                    # vitest
+npm run dev                 # vercel dev (uses api/[...route].ts at the repo root)
+```
+
 ## Deploy to Vercel
 
-Deploy as **two Vercel projects** from this repo (one for the API, one for the
-Next.js dashboard).
+Recommended: a **single Vercel project** that serves both the UI and the API
+from the Next.js app in `frontend/`. Hono is mounted as a catch-all API route,
+so requests to `/` get the dashboard and `/api/*` go to the same Hono handler
+you can run locally.
 
-### 1. Backend project
+### Project settings
 
-| Setting              | Value                                             |
-| -------------------- | ------------------------------------------------- |
-| Framework preset     | Other                                             |
-| Root Directory       | `./` (repo root, leave blank)                     |
-| Build command        | _empty_ (Vercel uses `api/[...route].ts` directly) |
-| Install command      | `npm install`                                     |
-| Output directory     | _empty_                                           |
+| Setting              | Value                |
+| -------------------- | -------------------- |
+| Framework preset     | Next.js              |
+| Root Directory       | `frontend`           |
+| Build command        | _default_            |
+| Install command      | _default_            |
+| Output directory     | _default_            |
 
-Then on the Vercel dashboard:
+### Storage
 
-1. **Storage → Create → KV** and link it to this project. Vercel injects
-   `KV_REST_API_URL`, `KV_REST_API_TOKEN`, `KV_URL`, etc. automatically.
-   Without KV, the API still runs but every cold start re-seeds the demo data
-   (fine for a quick demo, not durable).
-2. After the frontend project is deployed, set
-   `CORS_ORIGINS=https://<your-frontend>.vercel.app` so the API only accepts
-   the dashboard origin.
+In the Vercel dashboard go to **Storage → Create → KV** and link it to the
+project. Vercel injects `KV_REST_API_URL`, `KV_REST_API_TOKEN`, `KV_URL`, etc.
+automatically. The Hono store hydrates from KV on cold start and persists the
+whole snapshot on every mutation.
 
-The API will be live at `https://<backend-project>.vercel.app/api/health`.
+Without KV the app still runs, but every cold start re-seeds the demo data
+(fine for a quick look, not durable).
 
-### 2. Frontend project
+### No env coordination needed
 
-| Setting              | Value                                             |
-| -------------------- | ------------------------------------------------- |
-| Framework preset     | Next.js                                           |
-| Root Directory       | `frontend`                                        |
-| Build / install      | Defaults                                          |
+Because UI and API share the same origin, you do **not** need to set
+`NEXT_PUBLIC_API_BASE_URL` or `CORS_ORIGINS`. The frontend's API client
+defaults to same-origin, and CORS only matters when the API is hit from a
+different host.
 
-Set the env var:
+If you ever do split them (backend at root, frontend at `/frontend`) the
+standalone `api/[...route].ts` at the repo root still works as a backend-only
+Vercel project; in that case set:
 
-```
-NEXT_PUBLIC_API_BASE_URL=https://<backend-project>.vercel.app
-```
+- Frontend project: `NEXT_PUBLIC_API_BASE_URL=https://<backend>.vercel.app`
+- Backend project: `CORS_ORIGINS=https://<frontend>.vercel.app`
 
-Redeploy. The dashboard is now live and talking to your backend.
-
-### Persistence notes
+### Reset / persistence notes
 
 - Vercel KV stores the entire CRM as a single JSON snapshot under
-  `crm-snapshot` (or `${KV_NAMESPACE}:crm-snapshot`). Every successful
-  mutation persists the whole snapshot — perfect for low-write CRMs, easy to
-  swap for Postgres later.
+  `crm-snapshot` (or `${KV_NAMESPACE}:crm-snapshot`). Easy to swap for Postgres later.
 - To start fresh, delete the `crm-snapshot` key in the Vercel KV browser; the
   next request will reseed the demo data.
-- To migrate to Postgres, replace `src/lib/store.ts` with Prisma repositories
+- To migrate to Postgres, replace `frontend/server/lib/store.ts` with Prisma repositories
   (the schema in `prisma/schema.prisma` already matches the in-memory model).
 
 ## API surface
@@ -159,7 +160,7 @@ All `/api/crm/*` routes require `Authorization: Bearer <token>`.
 
 The remaining hardening work, in order:
 
-1. Replace the in-memory store (`src/lib/store.ts`) with Prisma repositories using the existing schema.
+1. Replace the in-memory store (`frontend/server/lib/store.ts`) with Prisma repositories using the existing schema.
 2. Add RBAC checks per route (currently any authenticated user has full access) plus an audit log table.
 3. Replace the demo login with a real auth provider (OAuth, magic links, or password + refresh tokens).
 4. Background jobs for lead scoring and campaign sync.
