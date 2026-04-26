@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { db, initStore, persistStore, type PartyKind } from '../../lib/store';
+import { parseCsv } from '../../lib/csv';
 
 export const dynamic = 'force-dynamic';
 
 interface PartiesPageProps {
-  searchParams: { kind?: string };
+  searchParams: { kind?: string; notice?: string };
 }
 
 async function createParty(formData: FormData) {
@@ -21,6 +22,77 @@ async function createParty(formData: FormData) {
   db.parties.create({ name, kind, email, phone, organizationId });
   await persistStore();
   revalidatePath('/parties');
+  revalidatePath('/');
+}
+
+async function importCsv(formData: FormData): Promise<void> {
+  'use server';
+  await initStore();
+  const file = formData.get('file');
+  if (!(file instanceof File) || file.size === 0) {
+    revalidatePath(`/parties?notice=${encodeURIComponent('No file selected.')}`);
+    return;
+  }
+  const text = await file.text();
+  let rows: Record<string, string>[] = [];
+  try {
+    rows = parseCsv(text);
+  } catch {
+    revalidatePath(`/parties?notice=${encodeURIComponent('Could not parse CSV.')}`);
+    return;
+  }
+
+  // Two-pass: organizations first, then people (so people can resolve their
+  // organizationName to an existing or freshly created org).
+  const existing = db.parties.list();
+  const orgByName = new Map(
+    existing.filter((p) => p.kind === 'organization').map((p) => [p.name.toLowerCase(), p.id])
+  );
+
+  let createdOrgs = 0;
+  let createdPeople = 0;
+
+  for (const row of rows.filter((r) => (r.kind ?? '').toLowerCase() === 'organization')) {
+    const name = (row.name ?? '').trim();
+    if (!name) continue;
+    if (orgByName.has(name.toLowerCase())) continue;
+    const created = db.parties.create({
+      kind: 'organization',
+      name,
+      email: row.email || undefined,
+      phone: row.phone || undefined
+    });
+    orgByName.set(name.toLowerCase(), created.id);
+    createdOrgs += 1;
+  }
+
+  for (const row of rows.filter((r) => (r.kind ?? '').toLowerCase() === 'person')) {
+    const name = (row.name ?? '').trim();
+    if (!name) continue;
+    let organizationId: string | undefined;
+    const orgName = (row.organizationname ?? '').trim();
+    if (orgName) {
+      organizationId = orgByName.get(orgName.toLowerCase());
+      if (!organizationId) {
+        const created = db.parties.create({ kind: 'organization', name: orgName });
+        orgByName.set(orgName.toLowerCase(), created.id);
+        organizationId = created.id;
+        createdOrgs += 1;
+      }
+    }
+    db.parties.create({
+      kind: 'person',
+      name,
+      email: row.email || undefined,
+      phone: row.phone || undefined,
+      organizationId
+    });
+    createdPeople += 1;
+  }
+
+  await persistStore();
+  const summary = `Imported ${createdPeople} person${createdPeople === 1 ? '' : 's'} and ${createdOrgs} organization${createdOrgs === 1 ? '' : 's'}.`;
+  revalidatePath(`/parties?notice=${encodeURIComponent(summary)}`);
   revalidatePath('/');
 }
 
@@ -53,7 +125,26 @@ export default async function PartiesPage({ searchParams }: PartiesPageProps) {
           <h1>Parties</h1>
           <p className="subtitle">{parties.length} {kindFilter ? kindFilter + 's' : 'records'} (people + organizations)</p>
         </div>
+        <div className="row" style={{ gap: 8 }}>
+          <a className="btn" href="/api/parties/export">⬇ Export CSV</a>
+          <form action={importCsv} encType="multipart/form-data" style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+            <input
+              type="file"
+              name="file"
+              accept=".csv,text/csv"
+              required
+              style={{ fontSize: 12 }}
+            />
+            <button type="submit" className="btn btn-primary">⬆ Import</button>
+          </form>
+        </div>
       </div>
+
+      {searchParams.notice && (
+        <div className="alert alert-success" style={{ background: '#d3f1e0', color: '#1f7a4f', border: '1px solid rgba(31, 122, 79, 0.2)' }}>
+          {searchParams.notice}
+        </div>
+      )}
 
       <div className="row" style={{ marginBottom: 16 }}>
         <a href="/parties" className={`btn ${!kindFilter ? 'btn-primary' : ''}`}>All</a>
