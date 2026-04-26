@@ -1,28 +1,22 @@
 {
-  "name": "tourism-crm",
+  "name": "gms-crm",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "lint": "next lint"
   },
   "dependencies": {
-    "@vercel/kv": "^3.0.0",
-    "hono": "^4.6.5",
     "next": "14.2.35",
     "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "zod": "^3.23.8"
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "typescript": "^5.7.2"
   }
 }

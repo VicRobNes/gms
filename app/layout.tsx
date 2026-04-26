@@ -1,17 +1,38 @@
 import type { Metadata } from 'next';
-import { AuthProvider } from '../lib/auth-context';
+import Link from 'next/link';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Tourism CRM',
-  description: 'CRM platform for tourism marketing agencies'
+  title: 'GMS CRM',
+  description: 'A simple CRM for managing contacts and deals.'
 };
+
+const NAV = [
+  { href: '/', label: 'Dashboard' },
+  { href: '/contacts', label: 'Contacts' },
+  { href: '/deals', label: 'Deals' }
+];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <div className="shell">
+          <aside className="sidebar">
+            <div className="brand">
+              GMS CRM
+              <small>Tourism marketing</small>
+            </div>
+            <nav>
+              {NAV.map((item) => (
+                <Link key={item.href} href={item.href}>
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          </aside>
+          <main className="main">{children}</main>
+        </div>
       </body>
     </html>
   );
