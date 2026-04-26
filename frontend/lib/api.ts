@@ -30,8 +30,12 @@ export class ApiError extends Error {
   }
 }
 
-const defaultBaseUrl = () =>
-  (typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_API_BASE_URL : '') || 'http://localhost:3000';
+const defaultBaseUrl = () => {
+  const fromEnv = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_API_BASE_URL : undefined;
+  if (fromEnv) return fromEnv;
+  // Same-origin: works when the API is mounted as a Next.js route in this app.
+  return '';
+};
 
 const buildQuery = (params: Record<string, string | number | undefined>) => {
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== '');
