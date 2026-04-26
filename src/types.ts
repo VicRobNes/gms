@@ -86,6 +86,15 @@ export interface Task {
   createdAt: string;
 }
 
+export interface LeadNote {
+  id: Id;
+  organizationId: Id;
+  leadId: Id;
+  authorId: Id;
+  body: string;
+  createdAt: string;
+}
+
 export interface AuthSession {
   token: string;
   userId: Id;

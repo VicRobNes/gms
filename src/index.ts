@@ -1,9 +1,21 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import { ZodError } from 'zod';
 import { api } from './modules/routes.js';
 
 const app = new Hono();
+
+app.use(
+  '*',
+  cors({
+    origin: (origin) => origin ?? '*',
+    allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    maxAge: 86400
+  })
+);
 
 app.route('/api', api);
 
