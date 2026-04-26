@@ -11,5 +11,5 @@
     "types": ["node", "vitest/globals"],
     "outDir": "dist"
   },
-  "include": ["frontend/server", "test"]
+  "include": ["frontend/server", "test", "api"]
 }
