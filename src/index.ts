@@ -6,10 +6,19 @@ import { api } from './modules/routes.js';
 
 const app = new Hono();
 
+const corsAllowlist = (process.env.CORS_ORIGINS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 app.use(
   '*',
   cors({
-    origin: (origin) => origin ?? '*',
+    origin: (origin) => {
+      if (!origin) return '*';
+      if (corsAllowlist.length === 0) return origin;
+      return corsAllowlist.includes(origin) ? origin : corsAllowlist[0]!;
+    },
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -28,6 +37,7 @@ app.onError((err, c) => {
     return c.json({ error: 'Validation failed', details: err.flatten() }, 400);
   }
 
+  console.error('[api] unhandled error', err);
   return c.json({ error: 'Internal server error' }, 500);
 });
 
