@@ -19,6 +19,7 @@ export interface DashboardSnapshot {
     wonLeads: number;
     conversionRate: number;
     leadsByStage: Record<string, number>;
+    pipelineValueCents: number;
   };
   marketing: {
     activeCampaigns: number;
@@ -26,10 +27,12 @@ export interface DashboardSnapshot {
     attributedLeads: number;
     attributedBookings: number;
     ctr: number;
+    costPerLeadCents: number;
   };
   operations: {
     openTasks: number;
     overdueTasks: number;
     bookedRevenueCents: number;
+    quotedRevenueCents: number;
   };
 }

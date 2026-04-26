@@ -67,3 +67,17 @@ export const createTaskSchema = z.object({
 export const updateTaskSchema = createTaskSchema.partial();
 
 export const patchTaskStatusSchema = z.object({ status: z.enum(['todo', 'doing', 'done']) });
+
+export const createUserSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1),
+  role: z.enum(['owner', 'admin', 'agent', 'analyst'])
+});
+
+export const createLeadNoteSchema = z.object({
+  body: z.string().min(1)
+});
+
+export const patchLeadStageSchema = z.object({
+  stage: z.enum(['new', 'qualified', 'proposal_sent', 'negotiation', 'won', 'lost'])
+});

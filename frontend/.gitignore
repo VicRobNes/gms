@@ -1,8 +1,7 @@
 node_modules
-dist
-.vercel
+.next
+out
 .env
 .env.local
+.vercel
 *.tsbuildinfo
-frontend/.next
-frontend/out

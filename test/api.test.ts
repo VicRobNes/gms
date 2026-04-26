@@ -152,4 +152,58 @@ describe('tourism crm api', () => {
     });
     expect(deleteTask.status).toBe(204);
   });
+
+  it('exposes /auth/me, lead stage shortcut, lead notes, and team management', async () => {
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+
+    const meRes = await app.request('/api/auth/me', { headers: { authorization: `Bearer ${token}` } });
+    expect(meRes.status).toBe(200);
+    const me = await meRes.json();
+    expect(me.user.email).toBe('owner@summittrails.example');
+    expect(me.organization?.id).toBeDefined();
+
+    const usersRes = await app.request('/api/crm/users', { headers: { authorization: `Bearer ${token}` } });
+    expect(usersRes.status).toBe(200);
+    const users = await usersRes.json();
+    expect(Array.isArray(users)).toBe(true);
+    expect(users.length).toBeGreaterThanOrEqual(4);
+
+    const inviteRes = await app.request('/api/crm/users', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name: 'Sam Tester', email: `tester+${Date.now()}@example.com`, role: 'agent' })
+    });
+    expect(inviteRes.status).toBe(201);
+
+    const leadsRes = await app.request('/api/crm/leads?pageSize=100', { headers: { authorization: `Bearer ${token}` } });
+    const leadsBody = await leadsRes.json();
+    const seedLead = leadsBody.items[0];
+    expect(seedLead).toBeDefined();
+
+    const stageRes = await app.request(`/api/crm/leads/${seedLead.id}/stage`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ stage: 'qualified' })
+    });
+    expect(stageRes.status).toBe(200);
+    expect((await stageRes.json()).stage).toBe('qualified');
+
+    const noteRes = await app.request(`/api/crm/leads/${seedLead.id}/notes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ body: 'Followed up via email' })
+    });
+    expect(noteRes.status).toBe(201);
+
+    const notesList = await app.request(`/api/crm/leads/${seedLead.id}/notes`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    expect(notesList.status).toBe(200);
+    expect((await notesList.json()).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('rejects unauthenticated access', async () => {
+    const res = await app.request('/api/crm/dashboard');
+    expect(res.status).toBe(401);
+  });
 });
