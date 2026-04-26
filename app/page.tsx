@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { db, stageKind } from '../lib/store';
 
 export const dynamic = 'force-dynamic';
@@ -120,7 +121,7 @@ export default function DashboardPage() {
               {upcoming.map((opp) => {
                 const party = partyById.get(opp.partyId);
                 return (
-                  <div key={opp.id} className="row between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+                  <Link key={opp.id} href={`/opportunities/${opp.id}`} className="row between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 13 }}>{opp.title}</div>
                       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -130,7 +131,7 @@ export default function DashboardPage() {
                     <span className="badge" style={{ background: 'var(--surface-muted)' }}>
                       {formatCurrency(opp.amount)}
                     </span>
-                  </div>
+                  </Link>
                 );
               })}
             </div>

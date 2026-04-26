@@ -1,6 +1,6 @@
 // Universal CRM data model — six primitives, three joins.
-// Stage 1 ships: Party, Pipeline, Opportunity.
-// Stage 2+ will add: Activity, Task, User. Same store shape.
+// Stages 1-2 ship: Party, Pipeline, Opportunity, Activity.
+// Stage 3+ will add: Task, User. Same store shape.
 
 const randomUUID = (): string => globalThis.crypto.randomUUID();
 const now = (): string => new Date().toISOString();
@@ -55,12 +55,30 @@ export interface Opportunity {
   createdAt: string;
 }
 
+// ---------- Activity -----------------------------------------------------
+// Anything that happened. Linked to a Party and/or an Opportunity, so a
+// single write surfaces in both feeds. `log` is auto-generated; the others
+// are user-entered.
+
+export type ActivityType = 'note' | 'call' | 'email' | 'meeting' | 'log';
+
+export interface Activity {
+  id: string;
+  type: ActivityType;
+  partyId?: string;
+  opportunityId?: string;
+  body: string;
+  at: string;        // when it happened
+  createdAt: string; // when it was logged
+}
+
 // ---------- DB -----------------------------------------------------------
 
 interface DB {
   parties: Party[];
   pipelines: Pipeline[];
   opportunities: Opportunity[];
+  activities: Activity[];
 }
 
 const globalForDB = globalThis as unknown as { __crmDB?: DB };
@@ -100,7 +118,28 @@ const seed = (): DB => {
     { id: randomUUID(), title: 'Tokyo + Kyoto custom tour',partyId: coastline, pipelineId: salesPipelineId, stage: 'New',       amount: 4800, closeDate: '2026-12-18', createdAt: now() }
   ];
 
-  return { parties, pipelines, opportunities };
+  const activities: Activity[] = [
+    {
+      id: randomUUID(),
+      type: 'note',
+      partyId: summit,
+      opportunityId: opportunities[0]!.id,
+      body: 'Client prefers overwater villas, allergic to shellfish.',
+      at: now(),
+      createdAt: now()
+    },
+    {
+      id: randomUUID(),
+      type: 'call',
+      partyId: blueRidge,
+      opportunityId: opportunities[1]!.id,
+      body: '15-min discovery call. Wants Patagonia in Q3, group of 1.',
+      at: now(),
+      createdAt: now()
+    }
+  ];
+
+  return { parties, pipelines, opportunities, activities };
 };
 
 const ensure = (): DB => {
@@ -129,8 +168,11 @@ export const db = {
       const s = ensure();
       const before = s.parties.length;
       s.parties = s.parties.filter((p) => p.id !== id);
-      // cascade: remove opportunities for this party, unlink persons that worked here
+      // cascade: remove opportunities + activities for this party,
+      // unlink persons that worked here.
+      const droppedOppIds = new Set(s.opportunities.filter((o) => o.partyId === id).map((o) => o.id));
       s.opportunities = s.opportunities.filter((o) => o.partyId !== id);
+      s.activities = s.activities.filter((a) => a.partyId !== id && !(a.opportunityId && droppedOppIds.has(a.opportunityId)));
       s.parties = s.parties.map((p) =>
         p.organizationId === id ? { ...p, organizationId: undefined } : p
       );
@@ -163,15 +205,51 @@ export const db = {
       return opp;
     },
     setStage(id: string, stage: string): Opportunity | undefined {
-      const opp = ensure().opportunities.find((o) => o.id === id);
-      if (opp) opp.stage = stage;
+      const s = ensure();
+      const opp = s.opportunities.find((o) => o.id === id);
+      if (!opp) return undefined;
+      const previous = opp.stage;
+      if (previous === stage) return opp;
+      opp.stage = stage;
+      // auto-log: visible in both party + opportunity feeds
+      s.activities.push({
+        id: randomUUID(),
+        type: 'log',
+        partyId: opp.partyId,
+        opportunityId: opp.id,
+        body: `Stage moved from "${previous}" to "${stage}"`,
+        at: now(),
+        createdAt: now()
+      });
       return opp;
     },
     delete(id: string): boolean {
       const s = ensure();
       const before = s.opportunities.length;
       s.opportunities = s.opportunities.filter((o) => o.id !== id);
+      // cascade: drop activities tied only to this opportunity
+      s.activities = s.activities.filter((a) => a.opportunityId !== id);
       return s.opportunities.length < before;
+    }
+  },
+
+  activities: {
+    list(filter?: { partyId?: string; opportunityId?: string }): Activity[] {
+      let items = ensure().activities;
+      if (filter?.partyId) items = items.filter((a) => a.partyId === filter.partyId);
+      if (filter?.opportunityId) items = items.filter((a) => a.opportunityId === filter.opportunityId);
+      return [...items].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    },
+    create(input: Omit<Activity, 'id' | 'createdAt'>): Activity {
+      const activity: Activity = { id: randomUUID(), createdAt: now(), ...input };
+      ensure().activities.push(activity);
+      return activity;
+    },
+    delete(id: string): boolean {
+      const s = ensure();
+      const before = s.activities.length;
+      s.activities = s.activities.filter((a) => a.id !== id);
+      return s.activities.length < before;
     }
   }
 };

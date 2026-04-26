@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { db, type PartyKind } from '../../lib/store';
 
@@ -109,10 +110,14 @@ export default function PartiesPage({ searchParams }: PartiesPageProps) {
           <tbody>
             {parties.map((p) => (
               <tr key={p.id}>
-                <td><strong>{p.name}</strong></td>
+                <td><Link href={`/parties/${p.id}`} className="link"><strong>{p.name}</strong></Link></td>
                 <td><span className="badge">{p.kind}</span></td>
                 <td>{p.email ?? '—'}</td>
-                <td>{p.organizationId ? (orgById.get(p.organizationId)?.name ?? '—') : '—'}</td>
+                <td>{p.organizationId ? (
+                  <Link href={`/parties/${p.organizationId}`} className="link">
+                    {orgById.get(p.organizationId)?.name ?? '—'}
+                  </Link>
+                ) : '—'}</td>
                 <td>{new Date(p.createdAt).toLocaleDateString()}</td>
                 <td>
                   <form action={deleteParty}>

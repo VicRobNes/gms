@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { db, stageKind } from '../../lib/store';
 import { StageSelect } from './StageSelect';
@@ -133,8 +134,10 @@ export default function OpportunitiesPage() {
               const kind = pipeline ? stageKind(pipeline, o.stage) : 'open';
               return (
                 <tr key={o.id}>
-                  <td><strong>{o.title}</strong></td>
-                  <td>{party?.name ?? <span style={{ color: 'var(--text-muted)' }}>Unknown</span>}</td>
+                  <td><Link href={`/opportunities/${o.id}`} className="link"><strong>{o.title}</strong></Link></td>
+                  <td>{party
+                    ? <Link href={`/parties/${party.id}`} className="link">{party.name}</Link>
+                    : <span style={{ color: 'var(--text-muted)' }}>Unknown</span>}</td>
                   <td>{pipeline?.name ?? '—'}</td>
                   <td>{formatCurrency(o.amount)}</td>
                   <td>{new Date(o.closeDate).toLocaleDateString()}</td>
