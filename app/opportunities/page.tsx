@@ -4,6 +4,7 @@ import { db, initStore, persistStore, stageKind } from '../../lib/store';
 import { getCurrentUser } from '../../lib/auth';
 import { StageSelect } from './StageSelect';
 import { PipelineStagePicker } from './PipelineStagePicker';
+import { KanbanBoard } from './KanbanBoard';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +12,7 @@ const formatCurrency = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
 interface PageProps {
-  searchParams: { mine?: string; pipeline?: string };
+  searchParams: { mine?: string; pipeline?: string; view?: string };
 }
 
 async function createOpportunity(formData: FormData) {
@@ -67,6 +68,7 @@ export default async function OpportunitiesPage({ searchParams }: PageProps) {
   const me = getCurrentUser();
   const mine = searchParams.mine === '1';
   const pipelineFilter = searchParams.pipeline;
+  const view: 'table' | 'kanban' = searchParams.view === 'kanban' ? 'kanban' : 'table';
 
   const pipelines = db.pipelines.list();
   const pipelineById = new Map(pipelines.map((p) => [p.id, p]));
@@ -82,14 +84,24 @@ export default async function OpportunitiesPage({ searchParams }: PageProps) {
   const users = db.users.list();
   const userById = new Map(users.map((u) => [u.id, u]));
   const defaultPipeline = db.pipelines.default();
-  const buildHref = (next: { mine?: boolean; pipeline?: string | null }) => {
+  const buildHref = (next: { mine?: boolean; pipeline?: string | null; view?: 'table' | 'kanban' }) => {
     const params = new URLSearchParams();
     if (next.mine ?? mine) params.set('mine', '1');
     const nextPipeline = next.pipeline === null ? undefined : next.pipeline ?? validPipelineFilter;
     if (nextPipeline) params.set('pipeline', nextPipeline);
+    const nextView = next.view ?? view;
+    if (nextView === 'kanban') params.set('view', 'kanban');
     const qs = params.toString();
     return qs ? `/opportunities?${qs}` : '/opportunities';
   };
+
+  // Kanban needs a single pipeline. If none filtered, show the default.
+  const kanbanPipeline = view === 'kanban'
+    ? (validPipelineFilter ? pipelineById.get(validPipelineFilter)! : defaultPipeline)
+    : null;
+  const kanbanOpps = kanbanPipeline
+    ? opportunities.filter((o) => o.pipelineId === kanbanPipeline.id)
+    : [];
 
   return (
     <div>
@@ -102,12 +114,22 @@ export default async function OpportunitiesPage({ searchParams }: PageProps) {
           </h1>
           <p className="subtitle">{opportunities.length} {mine ? 'owned by you' : 'in pipeline'}</p>
         </div>
-        <Link
-          href={buildHref({ mine: !mine })}
-          className={`btn ${mine ? 'btn-primary' : ''}`}
-        >
-          {mine ? 'Mine ✓' : 'Mine'}
-        </Link>
+        <div className="row" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 0, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+            <Link href={buildHref({ view: 'table' })} className={`btn ${view === 'table' ? 'btn-primary' : ''}`} style={{ borderRadius: 0, border: 'none' }}>
+              Table
+            </Link>
+            <Link href={buildHref({ view: 'kanban' })} className={`btn ${view === 'kanban' ? 'btn-primary' : ''}`} style={{ borderRadius: 0, border: 'none' }}>
+              Kanban
+            </Link>
+          </div>
+          <Link
+            href={buildHref({ mine: !mine })}
+            className={`btn ${mine ? 'btn-primary' : ''}`}
+          >
+            {mine ? 'Mine ✓' : 'Mine'}
+          </Link>
+        </div>
       </div>
 
       {pipelines.length > 1 && (
@@ -173,6 +195,15 @@ export default async function OpportunitiesPage({ searchParams }: PageProps) {
         )}
       </div>
 
+      {view === 'kanban' && kanbanPipeline ? (
+        <KanbanBoard
+          pipeline={kanbanPipeline}
+          opportunities={kanbanOpps}
+          partyById={partyById}
+          userById={userById}
+          moveAction={updateStage}
+        />
+      ) : (
       <div className="table-wrap">
         <table className="data">
           <thead>
@@ -230,6 +261,7 @@ export default async function OpportunitiesPage({ searchParams }: PageProps) {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
